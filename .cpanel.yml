@@ -1,7 +1,7 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home2/solve738/public_html/
+    - export DEPLOYPATH=/home2/solve738/public_html/Bharat_Impex/IMS/
     - /bin/cp -R * $DEPLOYPATH
     - /bin/cp -R api $DEPLOYPATH
     - /bin/cp -R assets $DEPLOYPATH

@@ -18,7 +18,7 @@ const getApiBase = () => {
     return `${match[1].replace(/\/+$/, '')}/api`;
   }
   
-  return './api';
+  return '/api';
 };
 
 const API_BASE = getApiBase();
