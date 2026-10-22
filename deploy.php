@@ -89,8 +89,10 @@ if ($res['code'] !== 0) {
 
 // 4. Reset worktree to origin/main
 echo ">>> Syncing files to origin/main...\n";
-$res = runCmd("{$gitBin} checkout -B main origin/main && {$gitBin} reset --hard origin/main", $workDir);
-echo "    " . $res['output'] . "\n\n";
+$res1 = runCmd("{$gitBin} checkout -f -B main origin/main", $workDir);
+$res2 = runCmd("{$gitBin} reset --hard origin/main", $workDir);
+echo "    Checkout: " . ($res1['output'] ?: 'OK') . "\n";
+echo "    Reset: " . ($res2['output'] ?: 'OK') . "\n\n";
 
 // 5. Log active commit
 echo ">>> Active Commit on Server:\n";
