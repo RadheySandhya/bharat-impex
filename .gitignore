@@ -1,0 +1,19 @@
+# Node dependencies
+node_modules/
+package-lock.json
+
+# Local Environment Variables & Secrets
+.env
+.env.local
+.env.production
+
+# Build artifacts from vite dev/test
+.vite/
+*.log
+
+# Deployment zip archives
+*.zip
+
+# Operating System Files
+.DS_Store
+Thumbs.db

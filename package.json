@@ -1,0 +1,39 @@
+{
+  "name": "bharat-impex-stock-project",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && powershell -Command \"if (-not (Test-Path 'assets')) { New-Item -ItemType Directory -Path 'assets' }; Copy-Item -Path 'dist/assets/*' -Destination 'assets' -Recurse -Force\"",
+    "preview": "vite preview",
+    "test:backend": "C:\\xampp\\php\\php.exe tests/test_api.php"
+  },
+  "dependencies": {
+    "autoprefixer": "^10.6.1",
+    "bcryptjs": "^3.0.3",
+    "clsx": "^2.1.1",
+    "concurrently": "^10.0.6",
+    "cors": "^2.8.6",
+    "csv-parser": "^3.2.1",
+    "dotenv": "^18.0.6",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "lucide-react": "^1.53.0",
+    "multer": "^2.4.0",
+    "papaparse": "^5.7.0",
+    "postcss": "^8.5.29",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "recharts": "^3.10.1",
+    "sqlite3": "^6.0.1",
+    "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.2",
+    "nodemon": "^3.1.14",
+    "vite": "^8.3.4"
+  }
+}
