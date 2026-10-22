@@ -27,6 +27,13 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState('sku_tracker');
   const [settingsSubTab, setSettingsSubTab] = useState('raw_materials');
 
+  // Automatically flush any legacy offline demo batch caches from browser storage
+  React.useEffect(() => {
+    try {
+      localStorage.removeItem('bharat_sku_tracking_batches');
+    } catch (e) {}
+  }, []);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">

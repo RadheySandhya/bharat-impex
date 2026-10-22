@@ -283,6 +283,14 @@ export function SKUTrackingSheet() {
       const releases = relRes?.data || [];
       const stagesList = activeStages && activeStages.length > 0 ? activeStages : stages;
 
+      // If database has no production batches, ensure clean empty state and wipe stale local cache
+      if (!releases || releases.length === 0) {
+        localStorage.removeItem('bharat_sku_tracking_batches');
+        setData([]);
+        setLoading(false);
+        return;
+      }
+
       let storedBatches = [];
       try {
         const saved = localStorage.getItem('bharat_sku_tracking_batches');
@@ -301,14 +309,7 @@ export function SKUTrackingSheet() {
         const normalized = { ...(existingStages || {}) };
         stagesList.forEach((stg, sIdx) => {
           if (!normalized[stg.key]) {
-            // Check legacy keys if migrating from previous hardcoded 4-stage schema
-            const legacyVal = 
-              (stg.code === 'PROC-CAST' ? (normalized['casting'] || normalized['proc_cast']) : null) ||
-              (stg.code === 'PROC-CNC' ? (normalized['machining'] || normalized['proc_cnc']) : null) ||
-              (stg.code === 'PROC-POLISH' ? (normalized['buffing'] || normalized['proc_polish']) : null) ||
-              (stg.code === 'PROC-ASSY' ? (normalized['assembly'] || normalized['proc_assy']) : null);
-
-            normalized[stg.key] = legacyVal || {
+            normalized[stg.key] = {
               prod_qty: sIdx === 0 ? defaultQty : 0,
               rejection: 0,
               bal: sIdx === 0 ? defaultQty : 0,
@@ -319,19 +320,14 @@ export function SKUTrackingSheet() {
         return normalized;
       };
 
-      const merged = [];
-      const handledKeys = new Set();
-
-      releases.forEach((rel) => {
+      // Only show batches that actually exist in the database releases
+      const merged = releases.map((rel) => {
         const idKey = `rel_${rel.id}`;
-        handledKeys.add(idKey);
-        handledKeys.add(String(rel.release_number));
-
         const existing = storedMap.get(idKey) || storedMap.get(String(rel.release_number));
         if (existing) {
           const qty = existing.qty_recd_casting || Number(rel.release_quantity || 0);
           const cDate = existing.casting_date || rel.release_date || new Date().toISOString().split('T')[0];
-          merged.push({
+          return {
             ...existing,
             id: idKey,
             release_id: rel.id,
@@ -344,21 +340,9 @@ export function SKUTrackingSheet() {
             item_name: (rel.product_name || existing.item_name).toUpperCase(),
             qty_recd_casting: qty,
             stages: normalizeBatchStages(existing.stages, qty, cDate),
-          });
-        } else {
-          merged.push(buildBatchFromRelease(rel, stagesList));
+          };
         }
-      });
-
-      storedBatches.forEach((b) => {
-        if (!handledKeys.has(String(b.id)) && !handledKeys.has(String(b.batch_no))) {
-          const qty = Number(b.qty_recd_casting || 0);
-          const cDate = b.casting_date || '';
-          merged.push({
-            ...b,
-            stages: normalizeBatchStages(b.stages, qty, cDate)
-          });
-        }
+        return buildBatchFromRelease(rel, stagesList);
       });
 
       setData(merged);
