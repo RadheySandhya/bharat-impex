@@ -80,6 +80,7 @@ echo "    Remote origin configured: {$repoUrl}\n\n";
 
 // 3. Fetch latest commits from GitHub
 echo ">>> Fetching latest from GitHub (main)...\n";
+runCmd("{$gitBin} config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'", $workDir);
 $res = runCmd("{$gitBin} fetch origin main", $workDir);
 if ($res['code'] !== 0) {
     echo "    ⚠️ Fetch failed:\n    " . $res['output'] . "\n\n";
@@ -87,10 +88,10 @@ if ($res['code'] !== 0) {
     echo "    ✓ Fetch completed\n\n";
 }
 
-// 4. Reset worktree to origin/main
-echo ">>> Syncing files to origin/main...\n";
-$res1 = runCmd("{$gitBin} checkout -f -B main origin/main", $workDir);
-$res2 = runCmd("{$gitBin} reset --hard origin/main", $workDir);
+// 4. Reset worktree to FETCH_HEAD
+echo ">>> Syncing files to latest commit...\n";
+$res1 = runCmd("{$gitBin} checkout -f -B main FETCH_HEAD", $workDir);
+$res2 = runCmd("{$gitBin} reset --hard FETCH_HEAD", $workDir);
 echo "    Checkout: " . ($res1['output'] ?: 'OK') . "\n";
 echo "    Reset: " . ($res2['output'] ?: 'OK') . "\n\n";
 
