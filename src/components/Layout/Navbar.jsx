@@ -37,8 +37,12 @@ export function Navbar({ activeTab, toggleSidebar }) {
           <h2 className="text-sm sm:text-base font-extrabold text-slate-900 capitalize tracking-tight truncate flex items-center gap-2">
             {titles[activeTab] || 'Bharat Impex ERP'}
           </h2>
-          <p className="text-[11px] text-slate-500 hidden md:block font-medium truncate">
-            Bharat Impex Manufacturing & Stock Suite
+          <p className="text-[11px] text-slate-500 hidden md:block font-medium truncate flex items-center gap-2">
+            <span>Bharat Impex Manufacturing & Stock Suite</span>
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              v1.0.1 • Git Auto-Deploy Active
+            </span>
           </p>
         </div>
       </div>
