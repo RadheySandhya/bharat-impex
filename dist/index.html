@@ -9,7 +9,17 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <script type="module" crossorigin src="./assets/index-BoUvzWqH.js"></script>
+    <script>
+      /* Bharat Impex — Client-Side Inspection Blocker */
+      document.addEventListener('contextmenu', function(e) { e.preventDefault(); return false; }, true);
+      window.addEventListener('keydown', function(e) {
+        if (e.key === 'F12' || e.keyCode === 123) { e.preventDefault(); return false; }
+        var m = e.ctrlKey || e.metaKey;
+        if (m && e.shiftKey && ['i','j','c','k'].indexOf((e.key||'').toLowerCase()) !== -1) { e.preventDefault(); return false; }
+        if (m && ['u','s'].indexOf((e.key||'').toLowerCase()) !== -1) { e.preventDefault(); return false; }
+      }, true);
+    </script>
+    <script type="module" crossorigin src="./assets/index-CCxrkHDu.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-D2IuiigJ.css">
   </head>
   <body class="bg-slate-50 text-slate-900 font-sans antialiased selection:bg-slate-900 selection:text-white">
