@@ -11,14 +11,9 @@ const getApiBase = () => {
     return '/api';
   }
   
-  // If running in Apache subdirectory (e.g., /bharat%20impex%20stock%20project/ or similar)
-  const pathname = window.location.pathname;
-  const match = pathname.match(/^(\/[^/]*bharat[^/]*)/i);
-  if (match) {
-    return `${match[1].replace(/\/+$/, '')}/api`;
-  }
-  
-  return '/api';
+  // Universally resolve base path whether in root, subdomain, or multi-level subfolder
+  const path = window.location.pathname.replace(/\/index\.(php|html)$/i, '').replace(/\/+$/, '');
+  return `${path ? path : ''}/api`;
 };
 
 const API_BASE = getApiBase();
@@ -46,10 +41,14 @@ async function request(endpoint, options = {}) {
   // Try relative endpoint first, then fallback to full path if running without Vite proxy
   const url = `${API_BASE}${cleanEndpoint}`;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
   try {
     const res = await fetch(url, {
       ...options,
       headers,
+      signal: options.signal || controller.signal,
     });
 
     const data = await res.json().catch(() => null);
@@ -67,6 +66,8 @@ async function request(endpoint, options = {}) {
   } catch (err) {
     console.error(`API Request Error [${endpoint}]:`, err);
     throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
