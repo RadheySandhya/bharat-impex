@@ -1,0 +1,17 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Prevent directory listing
+    Options -Indexes
+
+    # Set default index
+    DirectoryIndex index.php index.html
+
+    # Pass Authorization Header to PHP on FastCGI / cPanel
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>
+
+<IfModule mod_authz_core.c>
+    CGIPassAuth On
+</IfModule>

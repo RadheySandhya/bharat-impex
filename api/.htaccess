@@ -1,6 +1,17 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
+
+    # Pass Authorization Header to PHP on cPanel / FastCGI / LiteSpeed
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # Route all API endpoints to index.php
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>
+
+# Enable CGIPassAuth for HTTP Authorization header in Apache 2.4+
+<IfModule mod_authz_core.c>
+    CGIPassAuth On
 </IfModule>
