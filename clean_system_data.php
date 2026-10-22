@@ -34,54 +34,41 @@ try {
 
     $db->exec("SET FOREIGN_KEY_CHECKS = 0");
 
-    // List of transactional and master tables to clear for a complete fresh start
-    $tablesToTruncate = [
-        'stage_progress',
-        'sku_batch_progress',
-        'sku_batches',
-        'production_entries',
-        'daily_production_logs',
-        'scrap_entries',
-        'sub_sku_mappings',
-        'item_processes',
-        'item_vendors',
-        'bom_items',
-        'boms',
-        'in_out_items',
-        'in_out_register',
-        'purchase_order_items',
-        'purchase_orders',
-        'sales_order_items',
-        'sales_orders',
-        'stock_movements',
-        'stock_ledger',
-        'stock_adjustments',
-        'stock_adjustment_items',
-        'stock',
-        'inventory_transactions',
-        'eod_snapshots',
-        'audit_logs',
-        'items',
-        'vendors',
-        'customers',
-        'categories'
+    // Keep only essential system reference tables intact
+    $keepTables = [
+        'users',
+        'roles',
+        'units',
+        'processes',
+        'company_settings',
+        'warehouses',
+        'rejection_reasons',
+        'scrap_materials'
     ];
 
-    foreach ($tablesToTruncate as $tbl) {
+    // Fetch all existing tables in the database dynamically
+    $allTables = $db->query("SHOW TABLES")->fetchAll(\PDO::FETCH_COLUMN);
+
+    foreach ($allTables as $tbl) {
+        if (in_array(strtolower($tbl), $keepTables)) {
+            echo "ℹ️ Kept system definition table: `{$tbl}`\n";
+            continue;
+        }
+
         try {
             $db->exec("TRUNCATE TABLE `{$tbl}`");
             echo "✓ Truncated table: `{$tbl}`\n";
         } catch (\PDOException $e) {
-            // Fallback to DELETE if TRUNCATE fails on foreign key restrictions
             try {
                 $db->exec("DELETE FROM `{$tbl}`");
                 $db->exec("ALTER TABLE `{$tbl}` AUTO_INCREMENT = 1");
                 echo "✓ Cleared table (via DELETE): `{$tbl}`\n";
             } catch (\PDOException $e2) {
-                echo "⚠️ Note: Table `{$tbl}` skipped or not found ({$e2->getMessage()})\n";
+                echo "⚠️ Note: Table `{$tbl}` skipped ({$e2->getMessage()})\n";
             }
         }
     }
+
 
     // Reset default admin user with clean secure password
     // Password hash for: BharatAdmin@2026!
