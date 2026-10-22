@@ -36,7 +36,7 @@ $isCpanelServer = (strpos($httpHost, 'solveall360.com') !== false) || (strpos($d
 $defaultHost = $isCpanelServer ? 'localhost' : '127.0.0.1';
 $defaultDb   = $isCpanelServer ? 'solve738_stock' : 'bharat_impex';
 $defaultUser = $isCpanelServer ? 'solve738_dbuser' : 'root';
-$defaultPass = '';
+$defaultPass = $isCpanelServer ? 'Checklist@2026' : '';
 
 return [
     'driver'    => 'mysql',
