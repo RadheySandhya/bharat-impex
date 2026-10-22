@@ -39,6 +39,7 @@ echo "============================================================\n";
 echo "BHARAT IMPEX AUTO-DEPLOYMENT RUNNER\n";
 echo "Timestamp: " . date('Y-m-d H:i:s T') . "\n";
 echo "Server IP: " . ($_SERVER['SERVER_ADDR'] ?? 'unknown') . "\n";
+echo "Server Public IP: " . @file_get_contents('https://api.ipify.org') . "\n";
 echo "Directory: " . __DIR__ . "\n";
 echo "============================================================\n\n";
 
