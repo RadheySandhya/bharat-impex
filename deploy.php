@@ -38,6 +38,7 @@ if (!$isAuthorized) {
 echo "============================================================\n";
 echo "BHARAT IMPEX AUTO-DEPLOYMENT RUNNER\n";
 echo "Timestamp: " . date('Y-m-d H:i:s T') . "\n";
+echo "Server IP: " . ($_SERVER['SERVER_ADDR'] ?? 'unknown') . "\n";
 echo "Directory: " . __DIR__ . "\n";
 echo "============================================================\n\n";
 
