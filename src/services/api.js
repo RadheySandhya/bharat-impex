@@ -11,9 +11,14 @@ const getApiBase = () => {
     return '/api';
   }
   
-  // Universally resolve base path whether in root, subdomain, or multi-level subfolder
-  const path = window.location.pathname.replace(/\/index\.(php|html)$/i, '').replace(/\/+$/, '');
-  return `${path ? path : ''}/api`;
+  // If hosted in subfolder /Bharat_Impex/IMS
+  const path = window.location.pathname;
+  if (path.includes('/Bharat_Impex/IMS')) {
+    return '/Bharat_Impex/IMS/api';
+  }
+  
+  // Default for root domain or subdomain (e.g. bharat.solveall360.com)
+  return '/api';
 };
 
 const API_BASE = getApiBase();
