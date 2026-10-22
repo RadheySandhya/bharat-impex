@@ -1234,29 +1234,17 @@ export function SKUTrackingSheet() {
                         return (
                           <React.Fragment key={stg.key}>
                             <td
-                              onMouseEnter={(e) => handleStageCellHover(e, row, stg, idx)}
-                              onMouseLeave={handleStageCellLeave}
-                              onClick={(e) => handleStageCellHover(e, row, stg, idx)}
-                              className="p-2 text-right font-semibold text-slate-800 bg-slate-50/20 cursor-pointer hover:bg-blue-100/70 transition-colors select-none"
-                              title="Hover or click to view transit times & stage details"
+                              className="p-2 text-right font-semibold text-slate-800 bg-slate-50/20 select-none"
                             >
                               {prodQty}
                             </td>
                             <td
-                              onMouseEnter={(e) => handleStageCellHover(e, row, stg, idx)}
-                              onMouseLeave={handleStageCellLeave}
-                              onClick={(e) => handleStageCellHover(e, row, stg, idx)}
-                              className={`p-2 text-right cursor-pointer transition-colors select-none ${rejQty > 0 ? 'bg-rose-100 text-rose-800 font-bold hover:bg-rose-200' : 'text-slate-400 hover:bg-blue-100/70'}`}
-                              title="Hover or click to view transit times & stage details"
+                              className={`p-2 text-right select-none ${rejQty > 0 ? 'bg-rose-100 text-rose-800 font-bold' : 'text-slate-400'}`}
                             >
                               {rejQty}
                             </td>
                             <td
-                              onMouseEnter={(e) => handleStageCellHover(e, row, stg, idx)}
-                              onMouseLeave={handleStageCellLeave}
-                              onClick={(e) => handleStageCellHover(e, row, stg, idx)}
-                              className="p-2 text-right text-slate-500 bg-slate-50/20 border-r-2 border-slate-300 cursor-pointer hover:bg-blue-100/70 transition-colors select-none"
-                              title="Hover or click to view transit times & stage details"
+                              className="p-2 text-right text-slate-500 bg-slate-50/20 border-r-2 border-slate-300 select-none"
                             >
                               {balQty}
                             </td>
@@ -1665,122 +1653,7 @@ export function SKUTrackingSheet() {
         </div>
       )}
 
-      {/* FLOATING HOVER AUDIT & TRANSIT TIMELINE POPOVER */}
-      {hoverTooltip && (
-        <div
-          className="fixed z-50 w-80 bg-slate-900/95 backdrop-blur-md text-white rounded-2xl shadow-2xl border border-slate-700/80 p-3.5 space-y-2.5 pointer-events-none transition-all duration-150 animate-in fade-in zoom-in-95 text-xs font-sans ring-1 ring-white/10"
-          style={{
-            left: `${hoverTooltip.x}px`,
-            top: `${hoverTooltip.y}px`,
-          }}
-        >
-          {/* Header: Batch & Stage Badge */}
-          <div className="flex items-start justify-between gap-2 border-b border-slate-800 pb-2">
-            <div>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[10px] font-black text-blue-400 font-mono tracking-wider">
-                  {hoverTooltip.details.batchNo}
-                </span>
-                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full border ${hoverTooltip.details.statusClass}`}>
-                  {hoverTooltip.details.statusBadge}
-                </span>
-              </div>
-              <h4 className="font-extrabold text-slate-100 text-sm mt-0.5 leading-snug">
-                Stage {hoverTooltip.details.stageIndex}: {hoverTooltip.details.stageName}
-              </h4>
-              <p className="text-[10px] text-slate-400 font-medium truncate max-w-[200px]">
-                {hoverTooltip.details.itemName}
-              </p>
-            </div>
-            <span className="text-[10px] font-mono font-bold bg-slate-800 px-2 py-0.5 rounded text-slate-300 shrink-0">
-              {hoverTooltip.details.stageCode}
-            </span>
-          </div>
 
-          {/* Inflow & Outflow Transit Times */}
-          <div className="grid grid-cols-2 gap-2 bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
-            {/* INFLOW (Arrival) */}
-            <div className="space-y-1">
-              <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
-                <LogIn className="w-3 h-3" />
-                <span>Inflow (Aaya)</span>
-              </div>
-              <div className="font-extrabold text-slate-100 text-xs">
-                {hoverTooltip.details.inDate}
-              </div>
-              <div className="text-[11px] font-semibold text-slate-300">
-                🕒 {hoverTooltip.details.inTime}
-              </div>
-            </div>
-
-            {/* OUTFLOW (Handoff) */}
-            <div className="space-y-1 border-l border-slate-700/80 pl-2.5">
-              <div className="flex items-center gap-1 text-[10px] font-bold text-amber-400 uppercase tracking-wider">
-                <LogOut className="w-3 h-3" />
-                <span>Outflow (Gaya)</span>
-              </div>
-              <div className="font-extrabold text-slate-100 text-xs">
-                {hoverTooltip.details.outDate}
-              </div>
-              <div className="text-[11px] font-semibold text-slate-300 truncate">
-                🕒 {hoverTooltip.details.outTime}
-              </div>
-            </div>
-          </div>
-
-          {/* Stage Duration & Destination */}
-          <div className="space-y-1.5 bg-slate-800/50 p-2 rounded-xl border border-slate-800 text-[11px]">
-            <div className="flex items-center justify-between text-slate-300">
-              <span className="flex items-center gap-1 text-slate-400">
-                <Clock className="w-3.5 h-3.5 text-blue-400" />
-                <span>Time Spent:</span>
-              </span>
-              <strong className="text-white font-bold">
-                {hoverTooltip.details.actualDurationMins > 0 ? `${hoverTooltip.details.actualDurationMins} mins` : 'Active'}
-                <span className="text-slate-400 font-normal ml-1">
-                  (Avg: {hoverTooltip.details.standardDuration}m)
-                </span>
-              </strong>
-            </div>
-
-            <div className="flex items-center justify-between text-slate-300 border-t border-slate-800/80 pt-1">
-              <span className="flex items-center gap-1 text-slate-400">
-                <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Destination:</span>
-              </span>
-              <strong className="text-indigo-300 font-bold truncate max-w-[155px]">
-                {hoverTooltip.details.destination}
-              </strong>
-            </div>
-          </div>
-
-          {/* Quantities & Rejection Breakdown */}
-          <div className={`p-2.5 rounded-xl border ${
-            hoverTooltip.details.rejQty > 0 
-              ? 'bg-rose-950/40 border-rose-800/60 text-rose-200' 
-              : 'bg-slate-800/40 border-slate-700/60 text-slate-300'
-          }`}>
-            <div className="flex items-center justify-between text-[11px]">
-              <span>Pass: <strong className="text-emerald-400 font-bold">{hoverTooltip.details.prodQty} pcs</strong></span>
-              <span>Rejection: <strong className={hoverTooltip.details.rejQty > 0 ? "text-rose-400 font-bold" : "text-slate-400"}>{hoverTooltip.details.rejQty} pcs</strong></span>
-              <span>Bal: <strong className="text-blue-300 font-bold">{hoverTooltip.details.balQty} pcs</strong></span>
-            </div>
-
-            {hoverTooltip.details.rejQty > 0 && (
-              <div className="mt-2 pt-2 border-t border-rose-900/60 text-[10px] space-y-0.5">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-rose-300">Reason:</span>
-                  <span className="font-bold text-rose-100">{hoverTooltip.details.rejectionReason}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-rose-300">Scrap Gen:</span>
-                  <span className="font-mono font-bold text-amber-300">{hoverTooltip.details.scrapWeight} kg</span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* STAGE HANDOFF MODAL WITH DYNAMIC FLOW & REJECTION LOGGING */}
       <StageHandoffModal
