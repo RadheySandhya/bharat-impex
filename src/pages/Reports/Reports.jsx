@@ -16,6 +16,7 @@ import {
 import { DataTable } from '../../components/UI/DataTable';
 import { StatusBadge } from '../../components/UI/StatusBadge';
 import Icon from '../../components/UI/Icon';
+import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { triggerDownload } from '../../utils/csvTemplates';
@@ -239,22 +240,24 @@ export function Reports() {
       {/* Report 3: SKU Lifecycle Traceability */}
       {activeReport === 'traceability' && (
         <div className="space-y-6">
-          <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs flex items-center gap-4">
+          <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs flex items-center gap-4 flex-wrap">
             <label className="text-xs font-bold uppercase text-slate-700">Select Finished Good (SKU):</label>
-            <select
+            <SearchableSelect
               value={selectedFGId}
-              onChange={(e) => {
-                setSelectedFGId(e.target.value);
-                fetchTraceability(e.target.value);
+              onChange={(val) => {
+                setSelectedFGId(val);
+                if (val) fetchTraceability(val);
               }}
-              className="bg-white rounded-xl px-4 py-2 text-slate-900 border border-slate-300 text-xs font-semibold w-80 focus:ring-2 focus:ring-slate-900"
-            >
-              {finishedGoods.map((fg) => (
-                <option key={fg.id} value={fg.id}>
-                  [{fg.fg_code}] {fg.product_name}
-                </option>
-              ))}
-            </select>
+              placeholder="-- Select Finished Good --"
+              searchPlaceholder="Search finished good by name or code..."
+              className="w-80"
+              buttonClassName="bg-white rounded-xl px-4 py-2 text-slate-900 border border-slate-300 text-xs font-semibold"
+              options={finishedGoods.map((fg) => ({
+                value: fg.id,
+                label: fg.product_name,
+                sublabel: fg.fg_code
+              }))}
+            />
           </div>
 
           {traceabilityData && (

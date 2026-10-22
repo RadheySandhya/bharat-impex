@@ -19,6 +19,7 @@ import { Modal } from '../../components/UI/Modal';
 import Icon from '../../components/UI/Icon';
 import { BulkStockUploadModal } from '../../components/UI/BulkStockUploadModal';
 import { IMSTriNagarMaster } from './IMSTriNagarMaster';
+import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 
@@ -522,11 +523,11 @@ export function Inventory() {
 
             <div>
               <label className="block text-slate-600 font-semibold mb-1">Select Item from Stock</label>
-              <select
+              <SearchableSelect
                 value={adjustForm.material_id}
-                onChange={(e) => {
+                onChange={(val) => {
                   const item = stockList.find(
-                    (s) => s.material_type === adjustForm.material_type && s.material_id == e.target.value
+                    (s) => s.material_type === adjustForm.material_type && String(s.material_id) === String(val)
                   );
                   if (item) {
                     setAdjustForm({
@@ -540,18 +541,20 @@ export function Inventory() {
                     });
                   }
                 }}
-                className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+                placeholder="-- Choose Material --"
+                searchPlaceholder="Search material by name or code..."
+                className="w-full"
+                buttonClassName="rounded-xl px-3 py-2 text-xs border-slate-300"
                 required
-              >
-                <option value="">-- Choose Material --</option>
-                {stockList
+                options={stockList
                   .filter((s) => s.material_type === adjustForm.material_type)
-                  .map((s) => (
-                    <option key={`${s.material_type}-${s.material_id}`} value={s.material_id}>
-                      [{s.material_code}] {s.material_name} (Current: {s.quantity})
-                    </option>
-                  ))}
-              </select>
+                  .map((s) => ({
+                    value: s.material_id,
+                    label: s.material_name,
+                    sublabel: s.material_code,
+                    badge: `Qty: ${s.quantity}`
+                  }))}
+              />
             </div>
           </div>
 
@@ -626,53 +629,59 @@ export function Inventory() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-600 font-semibold mb-1">Source Warehouse (From)</label>
-              <select
+              <SearchableSelect
                 value={transferForm.source_warehouse_id}
-                onChange={(e) => setTransferForm({ ...transferForm, source_warehouse_id: e.target.value })}
-                className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
-              >
-                {warehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.warehouse_name} ({w.warehouse_code})
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setTransferForm({ ...transferForm, source_warehouse_id: val })}
+                placeholder="-- Select Source Warehouse --"
+                searchPlaceholder="Search warehouse..."
+                className="w-full"
+                buttonClassName="rounded-xl px-3 py-2 text-xs border-slate-300"
+                options={warehouses.map((w) => ({
+                  value: w.id,
+                  label: w.warehouse_name,
+                  sublabel: w.warehouse_code
+                }))}
+              />
             </div>
 
             <div>
               <label className="block text-slate-600 font-semibold mb-1">Destination Warehouse (To)</label>
-              <select
+              <SearchableSelect
                 value={transferForm.destination_warehouse_id}
-                onChange={(e) => setTransferForm({ ...transferForm, destination_warehouse_id: e.target.value })}
-                className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
-              >
-                {warehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.warehouse_name} ({w.warehouse_code})
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setTransferForm({ ...transferForm, destination_warehouse_id: val })}
+                placeholder="-- Select Destination Warehouse --"
+                searchPlaceholder="Search warehouse..."
+                className="w-full"
+                buttonClassName="rounded-xl px-3 py-2 text-xs border-slate-300"
+                options={warehouses.map((w) => ({
+                  value: w.id,
+                  label: w.warehouse_name,
+                  sublabel: w.warehouse_code
+                }))}
+              />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-600 font-semibold mb-1">Select Material to Transfer</label>
-              <select
+              <SearchableSelect
                 value={transferForm.material_id}
-                onChange={(e) => setTransferForm({ ...transferForm, material_id: e.target.value })}
-                className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+                onChange={(val) => setTransferForm({ ...transferForm, material_id: val })}
+                placeholder="-- Choose Material --"
+                searchPlaceholder="Search material by name..."
+                className="w-full"
+                buttonClassName="rounded-xl px-3 py-2 text-xs border-slate-300"
                 required
-              >
-                <option value="">-- Choose Material --</option>
-                {stockList
+                options={stockList
                   .filter((s) => s.warehouse_id == transferForm.source_warehouse_id)
-                  .map((s) => (
-                    <option key={`${s.material_type}-${s.material_id}`} value={s.material_id}>
-                      [{s.material_type}] {s.material_name} (Avail: {s.available_quantity})
-                    </option>
-                  ))}
-              </select>
+                  .map((s) => ({
+                    value: s.material_id,
+                    label: s.material_name,
+                    sublabel: s.material_type,
+                    badge: `Avail: ${s.available_quantity}`
+                  }))}
+              />
             </div>
 
             <div>
@@ -743,28 +752,30 @@ export function Inventory() {
 
             <div>
               <label className="block text-slate-600 font-semibold mb-1">Warehouse</label>
-              <select
+              <SearchableSelect
                 value={openingForm.warehouse_id}
-                onChange={(e) => setOpeningForm({ ...openingForm, warehouse_id: Number(e.target.value) })}
-                className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
-              >
-                {warehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.warehouse_name}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setOpeningForm({ ...openingForm, warehouse_id: Number(val) })}
+                placeholder="-- Select Warehouse --"
+                searchPlaceholder="Search warehouse..."
+                className="w-full"
+                buttonClassName="rounded-xl px-3 py-2 text-xs border-slate-300"
+                options={warehouses.map((w) => ({
+                  value: w.id,
+                  label: w.warehouse_name,
+                  sublabel: w.warehouse_code
+                }))}
+              />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-600 font-semibold mb-1">Select Item</label>
-              <select
+              <SearchableSelect
                 value={openingForm.material_id}
-                onChange={(e) => {
+                onChange={(val) => {
                   const sel = stockList.find(
-                    (s) => s.material_type === openingForm.material_type && s.material_id == e.target.value
+                    (s) => s.material_type === openingForm.material_type && String(s.material_id) === String(val)
                   );
                   if (sel) {
                     setOpeningForm({
@@ -776,18 +787,19 @@ export function Inventory() {
                     });
                   }
                 }}
-                className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+                placeholder="-- Choose Item --"
+                searchPlaceholder="Search item..."
+                className="w-full"
+                buttonClassName="rounded-xl px-3 py-2 text-xs border-slate-300"
                 required
-              >
-                <option value="">-- Choose Item --</option>
-                {stockList
+                options={stockList
                   .filter((s) => s.material_type === openingForm.material_type)
-                  .map((s) => (
-                    <option key={`${s.material_type}-${s.material_id}`} value={s.material_id}>
-                      [{s.material_code}] {s.material_name}
-                    </option>
-                  ))}
-              </select>
+                  .map((s) => ({
+                    value: s.material_id,
+                    label: s.material_name,
+                    sublabel: s.material_code
+                  }))}
+              />
             </div>
 
             <div>

@@ -6,6 +6,7 @@ import { DateRangePicker } from '../../components/UI/DateRangePicker';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { FullKittingModal } from '../../components/UI/FullKittingModal';
+import { SearchableSelect } from '../../components/UI/SearchableSelect';
 
 // ── Helpers ──────────────────────────────────────────────────
 const fmt = (n, d = 0) =>
@@ -232,13 +233,18 @@ function NewPlanningModal({ isOpen, onClose, finishedGoods, units, warehouses, o
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">
             <label className="block font-bold text-slate-700 mb-1">Finished Good <span className="text-red-500">*</span></label>
-            <select value={form.fg_id} onChange={e => set('fg_id', e.target.value)} required
-              className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-              <option value="">— Select Finished Good —</option>
-              {finishedGoods.map(fg => (
-                <option key={fg.id} value={fg.id}>[{fg.fg_code}] {fg.product_name}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={form.fg_id}
+              onChange={val => set('fg_id', val)}
+              required
+              options={finishedGoods.map(fg => ({
+                value: fg.id,
+                label: fg.product_name,
+                sublabel: fg.fg_code
+              }))}
+              placeholder="— Search or Select Finished Good —"
+              searchPlaceholder="Type product name or FG code..."
+            />
           </div>
 
           <div>
@@ -250,10 +256,16 @@ function NewPlanningModal({ isOpen, onClose, finishedGoods, units, warehouses, o
 
           <div>
             <label className="block font-bold text-slate-700 mb-1">Unit</label>
-            <select value={form.unit_id} onChange={e => set('unit_id', e.target.value)}
-              className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 focus:ring-2 focus:ring-blue-500">
-              {units.map(u => <option key={u.id} value={u.id}>{u.unit_code} — {u.unit_name}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.unit_id}
+              onChange={val => set('unit_id', val)}
+              options={units.map(u => ({
+                value: u.id,
+                label: `${u.unit_code} — ${u.unit_name}`,
+                badge: u.unit_code
+              }))}
+              placeholder="Select Unit..."
+            />
           </div>
 
           <div>
@@ -264,21 +276,32 @@ function NewPlanningModal({ isOpen, onClose, finishedGoods, units, warehouses, o
 
           <div>
             <label className="block font-bold text-slate-700 mb-1">Priority</label>
-            <select value={form.priority} onChange={e => set('priority', e.target.value)}
-              className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 focus:ring-2 focus:ring-blue-500">
-              <option value="LOW">Low</option>
-              <option value="NORMAL">Normal</option>
-              <option value="HIGH">High</option>
-              <option value="CRITICAL">Critical</option>
-            </select>
+            <SearchableSelect
+              value={form.priority}
+              onChange={val => set('priority', val)}
+              options={[
+                { value: 'LOW', label: 'Low Priority' },
+                { value: 'NORMAL', label: 'Normal Priority' },
+                { value: 'HIGH', label: 'High Priority' },
+                { value: 'CRITICAL', label: 'Critical Priority' }
+              ]}
+              placeholder="Select Priority..."
+            />
           </div>
 
           <div>
             <label className="block font-bold text-slate-700 mb-1">Output Warehouse</label>
-            <select value={form.warehouse_id} onChange={e => set('warehouse_id', e.target.value)}
-              className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 focus:ring-2 focus:ring-blue-500">
-              {warehouses.map(w => <option key={w.id} value={w.id}>{w.warehouse_name}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.warehouse_id}
+              onChange={val => set('warehouse_id', val)}
+              options={warehouses.map(w => ({
+                value: w.id,
+                label: w.warehouse_name,
+                sublabel: w.warehouse_code
+              }))}
+              placeholder="Select Warehouse..."
+              searchPlaceholder="Search warehouse..."
+            />
           </div>
 
           <div className="col-span-2">

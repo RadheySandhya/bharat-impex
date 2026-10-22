@@ -15,6 +15,7 @@ import { downloadFGSalesTemplate } from '../../utils/csvTemplates';
 import { DataTable } from '../../components/UI/DataTable';
 import { StatusBadge } from '../../components/UI/StatusBadge';
 import { Modal } from '../../components/UI/Modal';
+import { SearchableSelect } from '../../components/UI/SearchableSelect';
 import Icon from '../../components/UI/Icon';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
@@ -501,13 +502,12 @@ export function Sales() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-600 font-semibold mb-1">Select Finished Good (SKU)</label>
-              <select
+              <SearchableSelect
                 value={selectedProductOption}
-                onChange={(e) => {
-                  const val = e.target.value;
+                onChange={(val) => {
                   setSelectedProductOption(val);
-                  if (val.startsWith('sub_')) {
-                    const subId = parseInt(val.replace('sub_', ''), 10);
+                  if (val && String(val).startsWith('sub_')) {
+                    const subId = parseInt(String(val).replace('sub_', ''), 10);
                     const sub = subSkus.find((s) => Number(s.id) === subId);
                     if (sub) {
                       setDirectForm({
@@ -518,7 +518,7 @@ export function Sales() {
                         remarks: `Billed as ${sub.sub_sku_name} (${sub.brand_name})`,
                       });
                     }
-                  } else {
+                  } else if (val) {
                     const fg = finishedGoods.find((f) => String(f.id) === String(val));
                     setDirectForm({
                       ...directForm,
@@ -526,29 +526,35 @@ export function Sales() {
                       sub_sku_id: null,
                       rate: fg ? fg.selling_price : '',
                     });
+                  } else {
+                    setDirectForm({
+                      ...directForm,
+                      fg_id: '',
+                      sub_sku_id: null,
+                      rate: ''
+                    });
                   }
                 }}
-                className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+                options={[
+                  ...subSkus.map(sub => ({
+                    value: `sub_${sub.id}`,
+                    label: `${sub.sub_sku_name} (${sub.brand_name})`,
+                    sublabel: sub.sub_sku_code,
+                    category: `Physical: ${sub.parent_fg_code || 'Parent'}`,
+                    badge: 'Sub-SKU'
+                  })),
+                  ...finishedGoods.map(fg => ({
+                    value: String(fg.id),
+                    label: fg.product_name,
+                    sublabel: fg.fg_code,
+                    badge: `Avail: ${fg.available_stock || 0}`,
+                    category: 'Factory SKU'
+                  }))
+                ]}
+                placeholder="-- Search Product or Billing Sub-SKU --"
+                searchPlaceholder="Type SKU code, model name, brand..."
                 required
-              >
-                <option value="">-- Choose Product or Billing Sub-SKU --</option>
-                {subSkus.length > 0 && (
-                  <optgroup label="🏷️ Billing Sub-SKUs (A1, A2, Client Brands)">
-                    {subSkus.map((sub) => (
-                      <option key={`sub_${sub.id}`} value={`sub_${sub.id}`}>
-                        [{sub.sub_sku_code}] {sub.sub_sku_name} ({sub.brand_name}) → Physical: [{sub.parent_fg_code || 'Parent'}]
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                <optgroup label="🏭 Factory SKUs (Internal / Manufacturing)">
-                  {finishedGoods.map((fg) => (
-                    <option key={fg.id} value={fg.id}>
-                      [{fg.fg_code}] {fg.product_name} (Avail: {fg.available_stock || 0})
-                    </option>
-                  ))}
-                </optgroup>
-              </select>
+              />
             </div>
 
             <div>

@@ -19,6 +19,7 @@ import { downloadRMPurchaseTemplate } from '../../utils/csvTemplates';
 import { DataTable } from '../../components/UI/DataTable';
 import { StatusBadge } from '../../components/UI/StatusBadge';
 import { Modal } from '../../components/UI/Modal';
+import { SearchableSelect } from '../../components/UI/SearchableSelect';
 import Icon from '../../components/UI/Icon';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
@@ -592,19 +593,19 @@ export function Purchase() {
 
           <div>
             <label className="block text-slate-600 font-semibold mb-1">Map to System Child Part</label>
-            <select
+            <SearchableSelect
               value={selectedInternalRMId}
-              onChange={(e) => setSelectedInternalRMId(e.target.value)}
-              className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+              onChange={(val) => setSelectedInternalRMId(val)}
+              options={rawMaterials.map((rm) => ({
+                value: rm.id,
+                label: rm.material_name,
+                sublabel: rm.rm_code,
+                badge: rm.unit_code
+              }))}
+              placeholder="-- Search or Choose Child Part --"
+              searchPlaceholder="Type part name or RM code..."
               required
-            >
-              <option value="">-- Choose Child Part --</option>
-              {rawMaterials.map((rm) => (
-                <option key={rm.id} value={rm.id}>
-                  [{rm.rm_code}] {rm.material_name} ({rm.unit_code})
-                </option>
-              ))}
-            </select>
+            />
           </div>
         </form>
       </Modal>
@@ -637,19 +638,18 @@ export function Purchase() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-600 font-semibold mb-1">Select Child Part</label>
-              <select
+              <SearchableSelect
                 value={directForm.rm_id}
-                onChange={(e) => setDirectForm({ ...directForm, rm_id: e.target.value })}
-                className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+                onChange={(val) => setDirectForm({ ...directForm, rm_id: val })}
+                options={rawMaterials.map((rm) => ({
+                  value: rm.id,
+                  label: rm.material_name,
+                  sublabel: rm.rm_code
+                }))}
+                placeholder="-- Search or Choose Material --"
+                searchPlaceholder="Search material..."
                 required
-              >
-                <option value="">-- Choose Material --</option>
-                {rawMaterials.map((rm) => (
-                  <option key={rm.id} value={rm.id}>
-                    [{rm.rm_code}] {rm.material_name}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
 
             <div>

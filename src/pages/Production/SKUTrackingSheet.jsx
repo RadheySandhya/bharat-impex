@@ -33,6 +33,7 @@ import { DateRangePicker } from '../../components/UI/DateRangePicker';
 import { useDateRange } from '../../context/DateRangeContext';
 import { StageHandoffModal } from '../../components/UI/StageHandoffModal';
 import { FullKittingModal } from '../../components/UI/FullKittingModal';
+import SearchableSelect from '../../components/UI/SearchableSelect';
 import { triggerDownload } from '../../utils/csvTemplates';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
@@ -1533,10 +1534,9 @@ export function SKUTrackingSheet() {
                 <label className="block text-slate-700 font-bold mb-1">
                   Select Finished Good (FG Model) to Manufacture *
                 </label>
-                <select
-                  onChange={(e) => {
-                    const selId = e.target.value;
-                    const selected = finishedGoods.find((f) => String(f.id) === String(selId));
+                <SearchableSelect
+                  onChange={(val) => {
+                    const selected = finishedGoods.find((f) => String(f.id) === String(val));
                     if (selected) {
                       setNewRowForm({
                         ...newRowForm,
@@ -1546,15 +1546,16 @@ export function SKUTrackingSheet() {
                       });
                     }
                   }}
-                  className="w-full p-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 font-bold text-xs focus:ring-2 focus:ring-blue-600 mb-2 cursor-pointer"
-                >
-                  <option value="">-- Choose from Registered Finished Goods --</option>
-                  {finishedGoods.map((fg) => (
-                    <option key={fg.id} value={fg.id}>
-                      [{fg.fg_code}] {fg.product_name}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="-- Choose from Registered Finished Goods --"
+                  searchPlaceholder="Search finished goods by name or FG code..."
+                  className="w-full mb-2"
+                  buttonClassName="p-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 font-bold text-xs"
+                  options={finishedGoods.map((fg) => ({
+                    value: fg.id,
+                    label: fg.product_name,
+                    sublabel: fg.fg_code
+                  }))}
+                />
               </div>
 
               <div>

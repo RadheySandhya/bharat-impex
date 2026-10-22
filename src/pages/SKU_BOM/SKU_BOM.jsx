@@ -13,6 +13,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import Icon from '../../components/UI/Icon';
+import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 
@@ -368,18 +369,23 @@ export function SKU_BOM() {
             <Filter className="w-3 h-3 text-slate-500" />
             <span>Filter Product:</span>
           </label>
-          <select
+          <SearchableSelect
             value={selectedFGFilter}
-            onChange={(e) => setSelectedFGFilter(e.target.value)}
-            className="text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 focus:ring-2 focus:ring-emerald-600 cursor-pointer min-w-[200px]"
-          >
-            <option value="ALL">All Finished Goods ({uniqueFGCount} configured)</option>
-            {finishedGoods.map((fg) => (
-              <option key={fg.id} value={fg.id}>
-                [{fg.fg_code}] {fg.product_name}
-              </option>
-            ))}
-          </select>
+            onChange={(val) => setSelectedFGFilter(val || 'ALL')}
+            placeholder={`All Finished Goods (${uniqueFGCount} configured)`}
+            searchPlaceholder="Search product by name or FG code..."
+            className="min-w-[240px]"
+            buttonClassName="py-1.5 px-2.5 text-xs font-semibold rounded-lg bg-white border-slate-300"
+            clearable={false}
+            options={[
+              { value: 'ALL', label: `All Finished Goods (${uniqueFGCount} configured)` },
+              ...finishedGoods.map((fg) => ({
+                value: fg.id,
+                label: fg.product_name,
+                sublabel: fg.fg_code
+              }))
+            ]}
+          />
         </div>
 
         {/* Counter Pills */}
@@ -479,20 +485,21 @@ export function SKU_BOM() {
                         {dIdx + 1}
                       </td>
 
-                      {/* Col A: Used In FG (Dropdown) */}
+                      {/* Col A: Used In FG (Searchable Dropdown) */}
                       <td className="p-1.5 bg-[#dcfce7]/15">
-                        <select
+                        <SearchableSelect
                           value={row.fg_id || ''}
-                          onChange={(e) => handleFGChange(originalIdx, e.target.value)}
-                          className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-900 font-semibold text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-                        >
-                          <option value="">-- Select Finished Good --</option>
-                          {finishedGoods.map((fg) => (
-                            <option key={fg.id} value={fg.id}>
-                              {fg.product_name}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(val) => handleFGChange(originalIdx, val)}
+                          placeholder="-- Select FG --"
+                          searchPlaceholder="Search FG..."
+                          className="w-full min-w-[200px]"
+                          buttonClassName="py-1 px-2 text-xs font-semibold rounded-lg bg-white border-slate-300"
+                          options={finishedGoods.map((fg) => ({
+                            value: fg.id,
+                            label: fg.product_name,
+                            sublabel: fg.fg_code
+                          }))}
+                        />
                       </td>
 
                       {/* Col B: FG Code (Auto-populated Read-Only Pill) */}
@@ -506,20 +513,21 @@ export function SKU_BOM() {
                         )}
                       </td>
 
-                      {/* Col C: Item Name - Child Part (Dropdown) */}
+                      {/* Col C: Item Name - Child Part (Searchable Dropdown) */}
                       <td className="p-1.5 bg-[#fef3c7]/15">
-                        <select
+                        <SearchableSelect
                           value={row.rm_id || ''}
-                          onChange={(e) => handleRMChange(originalIdx, e.target.value)}
-                          className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-900 font-semibold text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
-                        >
-                          <option value="">-- Select Child Part --</option>
-                          {rawMaterials.map((rm) => (
-                            <option key={rm.id} value={rm.id}>
-                              {rm.material_name}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(val) => handleRMChange(originalIdx, val)}
+                          placeholder="-- Select Child Part --"
+                          searchPlaceholder="Search child part..."
+                          className="w-full min-w-[220px]"
+                          buttonClassName="py-1 px-2 text-xs font-semibold rounded-lg bg-white border-slate-300"
+                          options={rawMaterials.map((rm) => ({
+                            value: rm.id,
+                            label: rm.material_name,
+                            sublabel: rm.rm_code || rm.code
+                          }))}
+                        />
                       </td>
 
                       {/* Col D: Item Code - RM Code (Auto-populated Read-Only Pill) */}

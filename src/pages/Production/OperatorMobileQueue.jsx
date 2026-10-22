@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Icon from '../../components/UI/Icon';
 import { StatusBadge } from '../../components/UI/StatusBadge';
 import { Modal } from '../../components/UI/Modal';
+import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 
@@ -323,18 +324,20 @@ export function OperatorMobileQueue() {
         <form id="operator-rej-form" onSubmit={handleRejectionSubmit} className="space-y-4 text-xs">
           <div>
             <label className="block text-slate-700 font-bold mb-1 text-sm">Defect / Rejection Reason</label>
-            <select
+            <SearchableSelect
               value={rejReasonId}
-              onChange={(e) => setRejReasonId(e.target.value)}
-              className="w-full bg-white rounded-xl px-3 py-2.5 text-slate-900 border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-slate-900"
+              onChange={(val) => setRejReasonId(val)}
+              placeholder="-- Select Defect Reason --"
+              searchPlaceholder="Search defect reason..."
+              className="w-full"
+              buttonClassName="bg-white rounded-xl px-3 py-2.5 text-slate-900 border border-slate-300 text-sm font-semibold"
               required
-            >
-              {reasons.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.reason_name} ({r.category})
-                </option>
-              ))}
-            </select>
+              options={reasons.map((r) => ({
+                value: r.id,
+                label: r.reason_name,
+                sublabel: r.category
+              }))}
+            />
           </div>
 
           <div>

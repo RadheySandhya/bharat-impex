@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from './Modal';
 import Icon from './Icon';
+import SearchableSelect from './SearchableSelect';
 import { api } from '../../services/api';
 
 export function StageHandoffModal({ 
@@ -294,21 +295,23 @@ export function StageHandoffModal({
             <p className="text-[11px] text-indigo-800">
               Select which warehouse or storage location will receive this finished lot into live inventory.
             </p>
-            <select
+            <SearchableSelect
               value={selectedWarehouseId}
-              onChange={(e) => setSelectedWarehouseId(Number(e.target.value))}
-              className="w-full bg-white border border-indigo-300 rounded-xl px-3 py-2 text-slate-900 font-bold text-xs focus:ring-2 focus:ring-indigo-500"
-            >
-              {warehouses.length > 0 ? (
-                warehouses.map((wh) => (
-                  <option key={wh.id} value={wh.id}>
-                    {wh.warehouse_name} ({wh.warehouse_code}) {wh.is_default ? '★ Default' : ''}
-                  </option>
-                ))
+              onChange={(val) => setSelectedWarehouseId(Number(val))}
+              placeholder="-- Choose Warehouse --"
+              searchPlaceholder="Search warehouse by name or code..."
+              className="w-full"
+              buttonClassName="bg-white border border-indigo-300 rounded-xl px-3 py-2 text-slate-900 font-bold text-xs"
+              options={warehouses.length > 0 ? (
+                warehouses.map((wh) => ({
+                  value: wh.id,
+                  label: `${wh.warehouse_name} ${wh.is_default ? '★ Default' : ''}`,
+                  sublabel: wh.warehouse_code
+                }))
               ) : (
-                <option value={3}>WH-FG Finished Goods Dispatch Hub (Default)</option>
+                [{ value: 3, label: 'WH-FG Finished Goods Dispatch Hub (Default)' }]
               )}
-            </select>
+            />
           </div>
         )}
 

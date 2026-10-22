@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Icon from '../../components/UI/Icon';
 import { StatusBadge } from '../../components/UI/StatusBadge';
+import SearchableSelect from '../../components/UI/SearchableSelect';
 
 export function BOMPlaygroundModal({
   isOpen,
@@ -320,26 +321,27 @@ export function BOMPlaygroundModal({
           {!activeRecipe.id && (
             <div>
               <label className="block text-slate-700 font-bold mb-1">Target Finished Good (SKU) *</label>
-              <select
+              <SearchableSelect
                 value={activeRecipe.fg_id}
-                onChange={(e) => {
-                  const selFG = finishedGoods.find((f) => f.id == e.target.value);
+                onChange={(val) => {
+                  const selFG = finishedGoods.find((f) => String(f.id) === String(val));
                   setActiveRecipe({
                     ...activeRecipe,
-                    fg_id: e.target.value,
+                    fg_id: val,
                     product_name: selFG?.product_name || '',
                     fg_code: selFG?.fg_code || '',
                   });
                 }}
-                className="w-full bg-slate-50 rounded-lg px-2.5 py-1.5 text-slate-900 border border-slate-300 font-medium"
-              >
-                <option value="">-- Select Finished Good --</option>
-                {finishedGoods.map((fg) => (
-                  <option key={fg.id} value={fg.id}>
-                    [{fg.fg_code}] {fg.product_name}
-                  </option>
-                ))}
-              </select>
+                placeholder="-- Select Finished Good --"
+                searchPlaceholder="Search finished goods by model or code..."
+                className="w-full"
+                buttonClassName="bg-slate-50 rounded-lg px-2.5 py-1.5 text-slate-900 border border-slate-300 font-medium text-xs"
+                options={finishedGoods.map((fg) => ({
+                  value: fg.id,
+                  label: fg.product_name,
+                  sublabel: fg.fg_code
+                }))}
+              />
             </div>
           )}
 

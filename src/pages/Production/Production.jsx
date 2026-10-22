@@ -22,6 +22,7 @@ import { DataTable } from '../../components/UI/DataTable';
 import { StatusBadge } from '../../components/UI/StatusBadge';
 import { Modal } from '../../components/UI/Modal';
 import Icon from '../../components/UI/Icon';
+import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 
@@ -693,19 +694,20 @@ export function Production() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-600 font-semibold mb-1">Select Finished Good (SKU)</label>
-              <select
+              <SearchableSelect
                 value={planForm.fg_id}
-                onChange={(e) => handleFGChange(e.target.value)}
-                className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+                onChange={(val) => handleFGChange(val)}
+                placeholder="-- Choose Finished Product --"
+                searchPlaceholder="Search finished goods by model or code..."
+                className="w-full"
+                buttonClassName="rounded-xl px-3 py-2 text-xs border-slate-300"
                 required
-              >
-                <option value="">-- Choose Finished Product --</option>
-                {finishedGoods.map((fg) => (
-                  <option key={fg.id} value={fg.id}>
-                    [{fg.fg_code}] {fg.product_name}
-                  </option>
-                ))}
-              </select>
+                options={finishedGoods.map((fg) => ({
+                  value: fg.id,
+                  label: fg.product_name,
+                  sublabel: fg.fg_code
+                }))}
+              />
             </div>
 
             <div>
@@ -859,18 +861,20 @@ export function Production() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-600 font-semibold mb-1">Rejection Reason</label>
-              <select
+              <SearchableSelect
                 value={rejectionForm.rejection_reason_id}
-                onChange={(e) => setRejectionForm({ ...rejectionForm, rejection_reason_id: e.target.value })}
-                className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+                onChange={(val) => setRejectionForm({ ...rejectionForm, rejection_reason_id: val })}
+                placeholder="-- Select Reason --"
+                searchPlaceholder="Search defect reason..."
+                className="w-full"
+                buttonClassName="rounded-xl px-3 py-2 text-xs border-slate-300"
                 required
-              >
-                {reasons.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.reason_name} ({r.category})
-                  </option>
-                ))}
-              </select>
+                options={reasons.map((r) => ({
+                  value: r.id,
+                  label: r.reason_name,
+                  sublabel: r.category
+                }))}
+              />
             </div>
 
             <div>
@@ -902,18 +906,23 @@ export function Production() {
 
             <div>
               <label className="block text-slate-600 font-semibold mb-1">Scrap Material Category</label>
-              <select
+              <SearchableSelect
                 value={rejectionForm.scrap_material_id}
-                onChange={(e) => setRejectionForm({ ...rejectionForm, scrap_material_id: e.target.value })}
-                className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
-              >
-                <option value="">-- No Scrap Recovery --</option>
-                {scrapMaterials.map((sm) => (
-                  <option key={sm.id} value={sm.id}>
-                    {sm.scrap_name} ({sm.unit_code})
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setRejectionForm({ ...rejectionForm, scrap_material_id: val })}
+                placeholder="-- No Scrap Recovery --"
+                searchPlaceholder="Search scrap category..."
+                className="w-full"
+                buttonClassName="rounded-xl px-3 py-2 text-xs border-slate-300"
+                clearable={true}
+                options={[
+                  { value: '', label: '-- No Scrap Recovery --' },
+                  ...scrapMaterials.map((sm) => ({
+                    value: sm.id,
+                    label: sm.scrap_name,
+                    sublabel: sm.unit_code
+                  }))
+                ]}
+              />
             </div>
           </div>
 

@@ -23,6 +23,7 @@ import {
   Package
 } from 'lucide-react';
 import Icon from '../../components/UI/Icon';
+import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { Purchase } from '../Purchase/Purchase';
@@ -822,45 +823,43 @@ export function InOut() {
                             </select>
                           </td>
 
-                          {/* Col D: Item Name */}
+                          {/* Col D: Item Name (Searchable Dropdown) */}
                           <td className="p-1.5">
-                            <select
+                            <SearchableSelect
                               value={row.sub_sku_id ? `sub_${row.sub_sku_id}` : (row.item_id || '')}
-                              onChange={(e) => handleCellChange(originalIdx, 'item_selection', e.target.value)}
-                              className={`w-full text-xs font-medium rounded-lg px-2 py-1.5 bg-white text-slate-900 focus:outline-none focus:ring-2 cursor-pointer max-w-[340px] border ${
-                                isOut
-                                  ? 'border-rose-300 focus:ring-rose-500/30 focus:border-rose-500'
-                                  : 'border-emerald-300 focus:ring-emerald-500/30 focus:border-emerald-500'
+                              onChange={(val) => handleCellChange(originalIdx, 'item_selection', val)}
+                              placeholder="-- Choose Item --"
+                              searchPlaceholder="Type name, code, brand..."
+                              className="w-full min-w-[260px] max-w-[380px]"
+                              buttonClassName={`text-xs font-semibold rounded-lg px-2 py-1.5 bg-white border ${
+                                isOut ? 'border-rose-300' : 'border-emerald-300'
                               }`}
-                            >
-                              <option value="">-- Choose Item --</option>
-                              {row.material_type === 'RM' ? (
-                                rawMaterials.map((item) => (
-                                  <option key={item.id} value={item.id}>
-                                    [{item.item_code}] {item.item_name}
-                                  </option>
-                                ))
+                              options={row.material_type === 'RM' ? (
+                                rawMaterials.map((item) => ({
+                                  value: item.id,
+                                  label: item.item_name,
+                                  sublabel: item.item_code,
+                                  badge: item.unit_code
+                                }))
                               ) : (
-                                <>
-                                  {subSkus.length > 0 && (
-                                    <optgroup label="🏷️ Billing Sub-SKUs (Client / OEM / Brand)">
-                                      {subSkus.map((sub) => (
-                                        <option key={`sub_${sub.sub_sku_id}`} value={`sub_${sub.sub_sku_id}`}>
-                                          [{sub.sub_sku_code}] {sub.sub_sku_name} ({sub.brand_name}) → Physical: [{sub.parent_fg_code}]
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  )}
-                                  <optgroup label="🏭 Factory SKUs (Internal / Manufacturing)">
-                                    {finishedGoods.map((item) => (
-                                      <option key={item.id} value={item.id}>
-                                        [{item.item_code}] {item.item_name}
-                                      </option>
-                                    ))}
-                                  </optgroup>
-                                </>
+                                [
+                                  ...subSkus.map((sub) => ({
+                                    value: `sub_${sub.sub_sku_id}`,
+                                    label: `${sub.sub_sku_name} (${sub.brand_name})`,
+                                    sublabel: sub.sub_sku_code,
+                                    category: `Physical: [${sub.parent_fg_code}]`,
+                                    badge: sub.unit_code || 'PCS'
+                                  })),
+                                  ...finishedGoods.map((item) => ({
+                                    value: item.id,
+                                    label: item.item_name,
+                                    sublabel: item.item_code,
+                                    category: 'Factory SKU',
+                                    badge: item.unit_code || 'PCS'
+                                  }))
+                                ]
                               )}
-                            </select>
+                            />
                           </td>
 
                           {/* Col E: Item Code (Read-only badge) */}

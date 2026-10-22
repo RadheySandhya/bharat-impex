@@ -31,6 +31,7 @@ import { DataTable } from '../../components/UI/DataTable';
 import { StatusBadge } from '../../components/UI/StatusBadge';
 import { Modal } from '../../components/UI/Modal';
 import Icon from '../../components/UI/Icon';
+import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { MasterCSVImportModal } from '../../components/UI/MasterCSVImportModal';
@@ -1565,10 +1566,10 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
             <label className="block text-slate-700 font-bold mb-1">
               Parent Manufacturing SKU (Physical Inventory Stocked) *
             </label>
-            <select
+            <SearchableSelect
               value={subSKUForm.parent_fg_id}
-              onChange={(e) => {
-                const pId = Number(e.target.value);
+              onChange={(val) => {
+                const pId = Number(val);
                 const pFg = finishedGoods.find((f) => f.id === pId);
                 setSubSKUForm({ 
                   ...subSKUForm, 
@@ -1576,16 +1577,17 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
                   selling_price: subSKUForm.selling_price || (pFg ? Number(pFg.selling_price) : '')
                 });
               }}
-              className="w-full bg-white rounded-xl px-3 py-2 text-slate-900 border border-slate-300 font-semibold focus:ring-2 focus:ring-indigo-600"
+              placeholder="-- Choose Primary Finished Good --"
+              searchPlaceholder="Search finished goods by model or code..."
+              className="w-full"
+              buttonClassName="bg-white rounded-xl px-3 py-2 text-slate-900 border border-slate-300 font-semibold text-xs"
               required
-            >
-              <option value="">-- Choose Primary Finished Good --</option>
-              {finishedGoods.map((fg) => (
-                <option key={fg.id} value={fg.id}>
-                  [{fg.fg_code}] {fg.product_name} — (Rate: ₹{Number(fg.selling_price).toFixed(2)})
-                </option>
-              ))}
-            </select>
+              options={finishedGoods.map((fg) => ({
+                value: fg.id,
+                label: `${fg.product_name} (₹${Number(fg.selling_price).toFixed(2)})`,
+                sublabel: fg.fg_code
+              }))}
+            />
             <p className="text-[10px] text-slate-500 mt-1">
               Physical factory stock & BOM will only be managed on this parent SKU. Billing the Sub-SKU deducts from this item.
             </p>
