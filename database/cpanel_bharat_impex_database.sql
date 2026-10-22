@@ -1,4 +1,4 @@
-﻿-- MariaDB dump 10.19  Distrib 10.4.32-MariaDB, for Win64 (AMD64)
+-- MariaDB dump 10.19  Distrib 10.4.32-MariaDB, for Win64 (AMD64)
 --
 -- Host: localhost    Database: bharat_impex
 -- ------------------------------------------------------
@@ -1124,7 +1124,7 @@ CREATE TABLE `stock` (
   `warehouse_id` int(11) NOT NULL DEFAULT 1,
   `quantity` decimal(14,3) NOT NULL DEFAULT 0.000,
   `reserved_quantity` decimal(14,3) NOT NULL DEFAULT 0.000,
-  `available_quantity` decimal(14,3) GENERATED ALWAYS AS (`quantity` - `reserved_quantity`) STORED,
+  `available_quantity` decimal(14,3) NOT NULL DEFAULT 0.000,
   `unit_id` int(11) NOT NULL,
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
