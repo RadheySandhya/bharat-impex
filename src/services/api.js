@@ -5,18 +5,18 @@
 // Dynamically determine API base URL based on runtime environment
 const getApiBase = () => {
   if (typeof window === 'undefined') return '/api';
-  
+
   // If running on Vite dev server
   if (window.location.port === '5173' || window.location.port === '3000') {
     return '/api';
   }
-  
+
   // If hosted in subfolder /Bharat_Impex/IMS
   const path = window.location.pathname;
   if (path.includes('/Bharat_Impex/IMS')) {
     return '/Bharat_Impex/IMS/api';
   }
-  
+
   // Default for root domain or subdomain (e.g. bharat.solveall360.com)
   return '/api';
 };
@@ -27,7 +27,7 @@ const API_BASE = getApiBase();
 // Helper to make API calls with JWT authorization
 async function request(endpoint, options = {}) {
   const token = localStorage.getItem('bharat_impex_token');
-  
+
   const headers = {
     ...(options.headers || {}),
   };
@@ -42,7 +42,7 @@ async function request(endpoint, options = {}) {
   }
 
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  
+
   // Try relative endpoint first, then fallback to full path if running without Vite proxy
   const url = `${API_BASE}${cleanEndpoint}`;
 
@@ -283,6 +283,10 @@ export const api = {
     }),
     getReleases: (planningId = null) => request(`/planning/releases${planningId ? `?planning_id=${planningId}` : ''}`),
     update: (data) => request('/planning/update', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    updateStages: (data) => request('/planning/update-stages', {
       method: 'POST',
       body: JSON.stringify(data),
     }),

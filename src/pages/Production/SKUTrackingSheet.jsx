@@ -324,7 +324,15 @@ export function SKUTrackingSheet() {
       // Only show batches that actually exist in the database releases
       const merged = releases.map((rel) => {
         const idKey = `rel_${rel.id}`;
-        const existing = storedMap.get(idKey) || storedMap.get(String(rel.release_number));
+        let dbTracking = null;
+        if (rel.stage_tracking) {
+          try {
+            dbTracking = typeof rel.stage_tracking === 'string' ? JSON.parse(rel.stage_tracking) : rel.stage_tracking;
+          } catch (e) {
+            console.warn('Could not parse stage_tracking JSON:', e);
+          }
+        }
+        const existing = (dbTracking && dbTracking.stages ? dbTracking : null) || storedMap.get(idKey) || storedMap.get(String(rel.release_number));
         if (existing) {
           const qty = existing.qty_recd_casting || Number(rel.release_quantity || 0);
           const cDate = existing.casting_date || rel.release_date || new Date().toISOString().split('T')[0];
@@ -341,6 +349,7 @@ export function SKUTrackingSheet() {
             item_name: (rel.product_name || existing.item_name).toUpperCase(),
             qty_recd_casting: qty,
             stages: normalizeBatchStages(existing.stages, qty, cDate),
+            ready: existing.ready || { date_form: '', stock_qty: 0, total_rejection: 0, status: 'In Production' }
           };
         }
         return buildBatchFromRelease(rel, stagesList);
@@ -682,29 +691,37 @@ export function SKUTrackingSheet() {
         const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
 
         // Update source stage
-        if (!updated.stages[stageKey]) updated.stages[stageKey] = { prod_qty: 0, rejection: 0, bal: 0, date: todayStr };
-        updated.stages[stageKey].prod_qty = goodQty;
-        updated.stages[stageKey].rejection = (updated.stages[stageKey].rejection || 0) + rejQty;
-        updated.stages[stageKey].out_date = todayStr;
-        updated.stages[stageKey].out_time = timeStr;
-        updated.stages[stageKey].rejection_reason = rejReason;
-        updated.stages[stageKey].disposition = disposition;
-        updated.stages[stageKey].operator = operatorName;
-        updated.stages[stageKey].scrap_weight = scrapWeightKg;
-        updated.stages[stageKey].next_stage = nextStageKey === 'ready' ? 'Ready FG Stock' : (stages.find(s => s.key === nextStageKey)?.full_name || nextStageKey);
+        if (!updated.stages[stageKey]) {
+          updated.stages[stageKey] = { prod_qty: goodQty + rejQty, rejection: rejQty, bal: 0, date: todayStr };
+        } else {
+          const currentBal = Number(updated.stages[stageKey].bal !== undefined ? updated.stages[stageKey].bal : (updated.stages[stageKey].prod_qty || goodQty));
+          updated.stages[stageKey].bal = Math.max(0, currentBal - goodQty - rejQty);
+          updated.stages[stageKey].rejection = (Number(updated.stages[stageKey].rejection || 0)) + rejQty;
+          updated.stages[stageKey].out_date = todayStr;
+          updated.stages[stageKey].out_time = timeStr;
+          updated.stages[stageKey].rejection_reason = rejReason;
+          updated.stages[stageKey].disposition = disposition;
+          updated.stages[stageKey].operator = operatorName;
+          updated.stages[stageKey].scrap_weight = scrapWeightKg;
+          updated.stages[stageKey].next_stage = nextStageKey === 'ready' 
+            ? 'Ready FG Stock' 
+            : (stages.find(s => s.key === nextStageKey)?.full_name || nextStageKey);
+        }
 
         // Forward to next stage
         if (nextStageKey === 'ready') {
           if (!updated.ready) updated.ready = {};
-          updated.ready.stock_qty = goodQty;
+          updated.ready.stock_qty = (Number(updated.ready.stock_qty || 0)) + goodQty;
           updated.ready.date_form = todayStr;
           updated.ready.time_form = timeStr;
           updated.ready.status = 'Ready FG';
           updated.ready.stock_synced = true;
         } else {
-          if (!updated.stages[nextStageKey]) updated.stages[nextStageKey] = { prod_qty: goodQty, rejection: 0, bal: goodQty, date: todayStr };
-          else {
-            updated.stages[nextStageKey].prod_qty = goodQty;
+          if (!updated.stages[nextStageKey]) {
+            updated.stages[nextStageKey] = { prod_qty: goodQty, rejection: 0, bal: goodQty, date: todayStr };
+          } else {
+            updated.stages[nextStageKey].prod_qty = (Number(updated.stages[nextStageKey].prod_qty || 0)) + goodQty;
+            updated.stages[nextStageKey].bal = (Number(updated.stages[nextStageKey].bal || 0)) + goodQty;
             updated.stages[nextStageKey].date = todayStr;
           }
           updated.stages[nextStageKey].in_date = todayStr;
@@ -719,6 +736,16 @@ export function SKUTrackingSheet() {
 
         if (!updated.ready) updated.ready = {};
         updated.ready.total_rejection = totalRej;
+
+        // Persist to server database
+        if (updated.release_id || updated.batch_no) {
+          api.planning.updateStages({
+            release_id: updated.release_id,
+            batch_no: updated.batch_no,
+            stages: updated.stages,
+            ready: updated.ready
+          }).catch((err) => console.warn('Could not save stages to backend database:', err));
+        }
 
         return updated;
       });
@@ -785,6 +812,14 @@ export function SKUTrackingSheet() {
     setData((prev) => {
       const nextData = prev.map((item) => (item.id === updated.id ? updated : item));
       saveBatchesToStorage(nextData);
+      if (updated.release_id || updated.batch_no) {
+        api.planning.updateStages({
+          release_id: updated.release_id,
+          batch_no: updated.batch_no,
+          stages: updated.stages,
+          ready: updated.ready
+        }).catch((err) => console.warn('Could not save stages to backend database:', err));
+      }
       return nextData;
     });
     setEditModalOpen(false);
@@ -1202,26 +1237,59 @@ export function SKUTrackingSheet() {
                       <td className="p-2 font-bold text-blue-700 bg-slate-50/50 whitespace-nowrap">
                         <div className="flex flex-col gap-1 items-start">
                           <span>{row.batch_no?.startsWith('#') ? row.batch_no : `#${row.batch_no}`}</span>
-                          {row.rm_deducted ? (
-                            <span
-                              onClick={() => handleOpenKitting(row)}
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 cursor-pointer shadow-2xs"
-                              title="Child Parts deducted upfront from store. Click to view BOM breakdown."
-                            >
-                              <Check className="w-2.5 h-2.5" />
-                              <span>RM Kitted</span>
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenKitting(row)}
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-colors cursor-pointer shadow-2xs"
-                              title="Child Parts not yet deducted. Click for Full Kitting & upfront deduction."
-                            >
-                              <Boxes className="w-2.5 h-2.5 text-amber-600" />
-                              <span>Full Kitting</span>
-                            </button>
-                          )}
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {row.rm_deducted ? (
+                              <span
+                                onClick={() => handleOpenKitting(row)}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 cursor-pointer shadow-2xs"
+                                title="Child Parts deducted upfront from store. Click to view BOM breakdown."
+                              >
+                                <Check className="w-2.5 h-2.5" />
+                                <span>RM Kitted</span>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenKitting(row)}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-colors cursor-pointer shadow-2xs"
+                                title="Child Parts not yet deducted. Click for Full Kitting & upfront deduction."
+                              >
+                                <Boxes className="w-2.5 h-2.5 text-amber-600" />
+                                <span>Full Kitting</span>
+                              </button>
+                            )}
+
+                            {(() => {
+                              const isCompleted = isBatchCompleted(row, stages);
+                              if (isCompleted) {
+                                return (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                                    <span>Ready FG</span>
+                                  </span>
+                                );
+                              }
+                              let currentActive = stages[0];
+                              for (let i = stages.length - 1; i >= 0; i--) {
+                                const stg = row.stages?.[stages[i].key];
+                                if (Number(stg?.bal || stg?.prod_qty || 0) > 0) {
+                                  currentActive = stages[i];
+                                  break;
+                                }
+                              }
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenHandoff(row, currentActive.key)}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-2xs transition-colors cursor-pointer"
+                                  title={`Click to send batch from ${currentActive.name} to next stage`}
+                                >
+                                  <span>Send Next</span>
+                                  <ArrowRight className="w-2 h-2" />
+                                </button>
+                              );
+                            })()}
+                          </div>
                         </div>
                       </td>
                       <td className="p-2 font-bold text-slate-900 min-w-[200px] leading-tight">
@@ -1245,17 +1313,23 @@ export function SKUTrackingSheet() {
                         return (
                           <React.Fragment key={stg.key}>
                             <td
-                              className="p-2 text-right font-semibold text-slate-800 bg-slate-50/20 select-none"
+                              onClick={() => handleOpenHandoff(row, stg.key)}
+                              className="p-2 text-right font-semibold text-slate-800 bg-slate-50/20 hover:bg-blue-100/50 cursor-pointer select-none transition-colors"
+                              title={`Click to send ${stg.full_name} to next stage`}
                             >
                               {prodQty}
                             </td>
                             <td
-                              className={`p-2 text-right select-none ${rejQty > 0 ? 'bg-rose-100 text-rose-800 font-bold' : 'text-slate-400'}`}
+                              onClick={() => handleOpenHandoff(row, stg.key)}
+                              className={`p-2 text-right hover:bg-rose-50 cursor-pointer select-none transition-colors ${rejQty > 0 ? 'bg-rose-100 text-rose-800 font-bold' : 'text-slate-400'}`}
+                              title={`Click to send ${stg.full_name} to next stage`}
                             >
                               {rejQty}
                             </td>
                             <td
-                              className="p-2 text-right text-slate-500 bg-slate-50/20 border-r-2 border-slate-300 select-none"
+                              onClick={() => handleOpenHandoff(row, stg.key)}
+                              className="p-2 text-right text-slate-500 bg-slate-50/20 hover:bg-blue-100/50 border-r-2 border-slate-300 cursor-pointer select-none transition-colors"
+                              title={`Click to send ${stg.full_name} to next stage`}
                             >
                               {balQty}
                             </td>

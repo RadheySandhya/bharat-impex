@@ -27,10 +27,9 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState('sku_tracker');
   const [settingsSubTab, setSettingsSubTab] = useState('raw_materials');
 
-  // Automatically flush any legacy offline demo batch caches from browser storage
+  // Flush legacy demo rework queue if present
   React.useEffect(() => {
     try {
-      localStorage.removeItem('bharat_sku_tracking_batches');
       localStorage.removeItem('bharat_rework_queue');
     } catch (e) {}
   }, []);

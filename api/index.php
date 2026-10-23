@@ -226,6 +226,9 @@ try {
         case 'planning/update':
             if ($method === 'POST') PlanningController::update();
             break;
+        case 'planning/update-stages':
+            if ($method === 'POST') PlanningController::updateStages();
+            break;
         case 'planning/cancel':
             if ($method === 'POST') PlanningController::cancel();
             break;
@@ -315,6 +318,9 @@ try {
             break;
         case 'planning/update':
             if ($method === 'POST') PlanningController::update();
+            break;
+        case 'planning/update-stages':
+            if ($method === 'POST') PlanningController::updateStages();
             break;
         case 'planning/cancel':
             if ($method === 'POST') PlanningController::cancel();

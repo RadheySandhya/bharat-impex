@@ -455,9 +455,25 @@ class PlanningController {
         }
     }
 
+    // Ensure stage_tracking column exists in planning_releases
+    private static function ensureStageTrackingColumn(PDO $db): void {
+        static $checked = false;
+        if ($checked) return;
+        try {
+            $colStmt = $db->query("SHOW COLUMNS FROM planning_releases LIKE 'stage_tracking'");
+            if (!$colStmt->fetch()) {
+                $db->exec("ALTER TABLE planning_releases ADD COLUMN stage_tracking LONGTEXT NULL AFTER kitting_details");
+            }
+        } catch (Exception $e) {
+            // Silently ignore if already exists or permission issues
+        }
+        $checked = true;
+    }
+
     // GET /api/planning/releases (optional ?planning_id=X)
     public static function releases(): void {
         $db = self::db();
+        self::ensureStageTrackingColumn($db);
         $planningId = (int)($_GET['planning_id'] ?? 0);
         $where = ["pr.status = 'ACTIVE'"];
         $params = [];
@@ -490,6 +506,38 @@ class PlanningController {
         }
 
         Response::success($rows, 'Planning releases fetched');
+    }
+
+    // POST /api/planning/update-stages
+    public static function updateStages(): void {
+        $db = self::db();
+        self::ensureStageTrackingColumn($db);
+        $body = json_decode(file_get_contents('php://input'), true) ?? [];
+        $releaseId = (int)($body['release_id'] ?? 0);
+        $batchNo   = trim($body['batch_no'] ?? '');
+        $stages    = $body['stages'] ?? null;
+        $ready     = $body['ready'] ?? null;
+
+        if (!$releaseId && empty($batchNo)) {
+            Response::error('release_id or batch_no required', null, 400);
+            return;
+        }
+
+        $trackingPayload = json_encode([
+            'stages' => $stages,
+            'ready'  => $ready,
+            'updated_at' => date('Y-m-d H:i:s')
+        ]);
+
+        $sql = "UPDATE planning_releases SET stage_tracking = :st WHERE id = :id OR release_number = :rn";
+        $stmt = $db->prepare($sql);
+        $stmt->execute([
+            ':st' => $trackingPayload,
+            ':id' => $releaseId,
+            ':rn' => $batchNo
+        ]);
+
+        Response::success(['saved' => true], 'Batch stage tracking updated successfully');
     }
 
     // POST /api/planning/update
