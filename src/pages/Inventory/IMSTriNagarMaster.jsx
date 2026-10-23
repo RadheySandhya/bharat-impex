@@ -13,9 +13,14 @@ import {
   ArrowUpDown,
   TrendingDown,
   TrendingUp,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Building2,
+  Boxes,
+  Eye,
+  Info
 } from 'lucide-react';
 import Icon from '../../components/UI/Icon';
+import Modal from '../../components/UI/Modal';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { useDateRange } from '../../context/DateRangeContext';
@@ -121,7 +126,22 @@ export function IMSTriNagarMaster() {
   const { dateRange } = useDateRange();
   const [takingSnapshot, setTakingSnapshot] = useState(false);
 
+  // Stock Detail & Breakdown Modal State
+  const [selectedStockModal, setSelectedStockModal] = useState(null);
+  const [activeModalTab, setActiveModalTab] = useState('godown'); // 'godown', 'variants', 'bom'
+
   const { success, error } = useToast();
+
+  const handleOpenStockDetails = (itemRow, preferredTab = null) => {
+    setSelectedStockModal(itemRow);
+    if (preferredTab) {
+      setActiveModalTab(preferredTab);
+    } else if (itemRow.material_type === 'RM' && itemRow.variants && itemRow.variants.length > 0) {
+      setActiveModalTab('variants');
+    } else {
+      setActiveModalTab('godown');
+    }
+  };
 
   const fetchMasterData = async () => {
     setLoading(true);
@@ -563,7 +583,45 @@ export function IMSTriNagarMaster() {
 
                     {/* Item Name */}
                     <td className="p-2 border-r border-slate-200 font-bold text-slate-900 leading-tight">
-                      {row.item_name}
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span 
+                          onClick={() => handleOpenStockDetails(row)}
+                          className="hover:text-blue-700 hover:underline cursor-pointer"
+                          title="Click to inspect live stock breakdown"
+                        >
+                          {row.item_name}
+                        </span>
+                        <div className="flex items-center gap-1 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
+                          {row.material_type === 'RM' && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleOpenStockDetails(row, 'variants'); }}
+                              title={`View Brand Varieties (${row.variants?.length || 0})`}
+                              className="p-1 rounded-md bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                            >
+                              <Boxes className="w-3 h-3" />
+                            </button>
+                          )}
+                          {row.material_type === 'FG' && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleOpenStockDetails(row, 'bom'); }}
+                              title={`View BOM Recipe Child Parts (${row.bom_child_parts?.length || 0})`}
+                              className="p-1 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                            >
+                              <Layers className="w-3 h-3" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleOpenStockDetails(row, 'godown'); }}
+                            title="View Godown / Warehouse Stock Breakdown"
+                            className="p-1 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                          >
+                            <Building2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
                     </td>
 
                     {/* Stock Type */}
@@ -586,24 +644,29 @@ export function IMSTriNagarMaster() {
                       {row.max_level}
                     </td>
 
-                    {/* Current Stock with Dynamic Stock Science Zone Color - Center Aligned */}
+                    {/* Current Stock with Dynamic Stock Science Zone Color - Center Aligned & Clickable */}
                     {(() => {
                       const zone = getStockZone(row.current_stock, row.max_level, row.min_level);
                       const zoneStyle = getZoneStyles(zone);
                       const ratio = row.max_level > 0 ? Math.round((Number(row.current_stock) / Number(row.max_level)) * 100) : null;
                       return (
                         <td
-                          className={`p-2 border-r-2 border-slate-300 text-center font-mono text-xs transition-colors ${zoneStyle.cellClass}`}
+                          onClick={() => handleOpenStockDetails(row)}
+                          className={`p-2 border-r-2 border-slate-300 text-center font-mono text-xs transition-all cursor-pointer hover:brightness-95 hover:shadow-inner group/cell ${zoneStyle.cellClass}`}
                           style={zoneStyle.style}
-                          title={`Current Live Stock: ${row.current_stock} ${row.unit_code}\nMAX Level: ${row.max_level}\nZone: ${zoneStyle.label}${ratio !== null ? ` (${ratio}% of Max Level)` : ''}`}
+                          title={`Click to view Warehouse & Variant Breakdown\nCurrent Live Stock: ${row.current_stock} ${row.unit_code}\nMAX Level: ${row.max_level}\nZone: ${zoneStyle.label}${ratio !== null ? ` (${ratio}% of Max Level)` : ''}`}
                         >
                           <div className="flex items-center justify-center gap-1.5">
-                            <span className="font-extrabold text-xs">{row.current_stock}</span>
+                            <span className="font-extrabold text-xs underline decoration-dotted underline-offset-2">{row.current_stock}</span>
                             {ratio !== null && (
                               <span className={`text-[9px] font-sans font-bold px-1.5 py-0.2 rounded border shadow-2xs ${zoneStyle.badgeBg}`}>
                                 {ratio}%
                               </span>
                             )}
+                          </div>
+                          <div className="text-[9px] font-sans font-semibold opacity-60 group-hover/cell:opacity-100 transition-opacity flex items-center justify-center gap-0.5 mt-0.5">
+                            <Building2 className="w-2.5 h-2.5 text-blue-600" />
+                            <span className="text-blue-700 font-bold">Details</span>
                           </div>
                         </td>
                       );
@@ -648,6 +711,349 @@ export function IMSTriNagarMaster() {
           </table>
         </div>
       </div>
+
+      {/* STOCK DETAILS & BREAKDOWN MODAL */}
+      <Modal
+        isOpen={Boolean(selectedStockModal)}
+        onClose={() => setSelectedStockModal(null)}
+        title={
+          <div className="flex items-center gap-2">
+            <Building2 className="w-5 h-5 text-blue-600" />
+            <span>Stock Distribution & Inspection</span>
+          </div>
+        }
+        maxWidth="max-w-3xl"
+      >
+        {selectedStockModal && (
+          <div className="space-y-4">
+            {/* Item Profile Card */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-white border border-slate-300 text-slate-800">
+                    {selectedStockModal.cat_no}
+                  </span>
+                  <h3 className="font-extrabold text-sm text-slate-900">
+                    {selectedStockModal.item_name}
+                  </h3>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    selectedStockModal.material_type === 'RM' 
+                      ? 'bg-amber-100 text-amber-900 border border-amber-200' 
+                      : 'bg-blue-100 text-blue-900 border border-blue-200'
+                  }`}>
+                    {selectedStockModal.material_type === 'RM' ? 'Child Part (RM)' : 'Finished Good (FG)'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-slate-500 mt-1 flex-wrap">
+                  <span>Group: <strong className="text-slate-700">{selectedStockModal.group_name}</strong></span>
+                  <span>Unit: <strong className="text-slate-700">{selectedStockModal.unit_code}</strong></span>
+                  <span>Max Level: <strong className="text-slate-700">{selectedStockModal.max_level || 0}</strong></span>
+                  <span>Min Level: <strong className="text-slate-700">{selectedStockModal.min_level || 0}</strong></span>
+                </div>
+              </div>
+
+              {/* Total Stock Badge */}
+              <div className="text-left sm:text-right shrink-0">
+                <span className="text-lg font-black font-mono text-slate-900 block">
+                  {selectedStockModal.current_stock} {selectedStockModal.unit_code}
+                </span>
+                <span className="text-[10px] uppercase font-bold text-slate-400">Total Live Stock</span>
+              </div>
+            </div>
+
+            {/* Modal Sub-Tabs */}
+            <div className="flex items-center gap-1 border-b border-slate-200 pb-2">
+              <button
+                type="button"
+                onClick={() => setActiveModalTab('godown')}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeModalTab === 'godown'
+                    ? 'bg-amber-500 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <Building2 className="w-3.5 h-3.5" />
+                <span>Godown / Warehouse Breakdown</span>
+              </button>
+
+              {selectedStockModal.material_type === 'RM' && (
+                <button
+                  type="button"
+                  onClick={() => setActiveModalTab('variants')}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    activeModalTab === 'variants'
+                      ? 'bg-purple-600 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <Boxes className="w-3.5 h-3.5" />
+                  <span>Brand Varieties ({selectedStockModal.variants?.length || 0})</span>
+                </button>
+              )}
+
+              {selectedStockModal.material_type === 'FG' && (
+                <button
+                  type="button"
+                  onClick={() => setActiveModalTab('bom')}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    activeModalTab === 'bom'
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>BOM Child Parts ({selectedStockModal.bom_child_parts?.length || 0})</span>
+                </button>
+              )}
+            </div>
+
+            {/* TAB CONTENT 1: GODOWN-WISE BREAKDOWN */}
+            {activeModalTab === 'godown' && (
+              <div className="space-y-3">
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-100 text-[11px] font-bold text-slate-700 border-b border-slate-200">
+                      <tr>
+                        <th className="p-2.5 text-center w-10">#</th>
+                        <th className="p-2.5">Warehouse / Godown</th>
+                        <th className="p-2.5 text-right">Physical Qty</th>
+                        <th className="p-2.5 text-right">Reserved Qty</th>
+                        <th className="p-2.5 text-right">Available Qty</th>
+                        <th className="p-2.5 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {(!data?.warehouses || data.warehouses.length === 0) ? (
+                        <tr>
+                          <td colSpan={6} className="p-6 text-center text-slate-400">
+                            No warehouses configured.
+                          </td>
+                        </tr>
+                      ) : (
+                        data.warehouses.map((wh, wIdx) => {
+                          const stk = selectedStockModal.godown_stocks?.find(s => s.warehouse_id === wh.id);
+                          const qty = stk ? stk.quantity : 0;
+                          const resQty = stk ? stk.reserved_quantity : 0;
+                          const availQty = stk ? stk.available_quantity : 0;
+                          const hasStock = qty > 0;
+
+                          return (
+                            <tr key={wh.id} className="hover:bg-slate-50/70">
+                              <td className="p-2.5 text-center font-mono text-slate-400">{wIdx + 1}</td>
+                              <td className="p-2.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                                    {wh.warehouse_code}
+                                  </span>
+                                  <span className="font-bold text-slate-900">{wh.warehouse_name}</span>
+                                </div>
+                                {wh.location && <span className="text-[10px] text-slate-400 block mt-0.5">{wh.location}</span>}
+                              </td>
+                              <td className="p-2.5 text-right font-mono font-bold text-slate-800">
+                                {qty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} {selectedStockModal.unit_code}
+                              </td>
+                              <td className="p-2.5 text-right font-mono text-slate-500">
+                                {resQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} {selectedStockModal.unit_code}
+                              </td>
+                              <td className="p-2.5 text-right font-mono font-bold text-emerald-700">
+                                {availQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} {selectedStockModal.unit_code}
+                              </td>
+                              <td className="p-2.5 text-center">
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                                  hasStock ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                                }`}>
+                                  {hasStock ? 'In Stock' : 'Empty'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Warehouse Summary Footer */}
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 flex items-center justify-between">
+                  <span className="font-semibold">
+                    Total inventory across all {data?.warehouses?.length || 0} storage locations
+                  </span>
+                  <span className="font-black font-mono text-sm">
+                    {selectedStockModal.current_stock} {selectedStockModal.unit_code}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* TAB CONTENT 2: BRAND VARIETIES (FOR CHILD PARTS) */}
+            {activeModalTab === 'variants' && selectedStockModal.material_type === 'RM' && (
+              <div className="space-y-3">
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-100 text-[11px] font-bold text-slate-700 border-b border-slate-200">
+                      <tr>
+                        <th className="p-2.5 text-center w-10">#</th>
+                        <th className="p-2.5">Brand</th>
+                        <th className="p-2.5">Variant Code & Name</th>
+                        <th className="p-2.5 text-right">Standard Rate (₹)</th>
+                        <th className="p-2.5 text-right">Live Stock</th>
+                        <th className="p-2.5">Mapped Customer / Party</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {/* Generic Standard Universal Row */}
+                      <tr className="bg-slate-50/50 hover:bg-slate-50">
+                        <td className="p-2.5 text-center font-mono text-slate-400">-</td>
+                        <td className="p-2.5">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-700">Generic</span>
+                        </td>
+                        <td className="p-2.5">
+                          <span className="font-bold text-slate-800">Standard / Universal (No Brand)</span>
+                          <span className="block text-[10px] text-slate-400 font-mono">{selectedStockModal.cat_no}</span>
+                        </td>
+                        <td className="p-2.5 text-right font-mono font-bold text-slate-800">-</td>
+                        <td className="p-2.5 text-right font-mono font-bold text-slate-800">
+                          {selectedStockModal.current_stock} {selectedStockModal.unit_code}
+                        </td>
+                        <td className="p-2.5 text-slate-400 italic text-[11px]">General</td>
+                      </tr>
+
+                      {/* Brand Varieties (Somany, Prince Pipe, etc.) */}
+                      {(!selectedStockModal.variants || selectedStockModal.variants.length === 0) ? (
+                        <tr>
+                          <td colSpan={6} className="p-6 text-center text-slate-400">
+                            No brand varieties configured for this child part. (Generic inventory only).
+                          </td>
+                        </tr>
+                      ) : (
+                        selectedStockModal.variants.map((v, vIdx) => (
+                          <tr key={v.id || vIdx} className="hover:bg-slate-50/70">
+                            <td className="p-2.5 text-center font-mono text-slate-400">{vIdx + 1}</td>
+                            <td className="p-2.5">
+                              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-purple-600 text-white shadow-2xs">
+                                {v.brand_name}
+                              </span>
+                            </td>
+                            <td className="p-2.5">
+                              <span className="font-bold text-slate-900">{v.sub_part_name}</span>
+                              <span className="block font-mono text-[10px] text-slate-500">{v.sub_part_code}</span>
+                            </td>
+                            <td className="p-2.5 text-right font-mono font-bold text-slate-800">
+                              ₹{parseFloat(v.standard_rate || 0).toFixed(2)}
+                            </td>
+                            <td className="p-2.5 text-right font-mono font-black text-purple-700 text-xs">
+                              {v.current_stock || 0} {selectedStockModal.unit_code}
+                            </td>
+                            <td className="p-2.5">
+                              {v.mapped_customer_name ? (
+                                <span className="text-indigo-700 font-bold text-xs">{v.mapped_customer_name}</span>
+                              ) : (
+                                <span className="text-slate-400 italic text-[11px]">General</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Variants Note */}
+                <div className="p-3 bg-purple-50 rounded-xl border border-purple-200 text-xs text-purple-900">
+                  <p className="font-bold flex items-center gap-1.5">
+                    <Boxes className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Brand Variety Stock Science</span>
+                  </p>
+                  <p className="text-purple-700 mt-0.5">
+                    When inwarding via <strong>In / Out Register</strong>, each brand variant increases its individual stock balance, tracking live physical supplies from different brands (e.g., Somany vs Prince Pipe).
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* TAB CONTENT 3: BOM CHILD PARTS RECIPE (FOR FINISHED GOODS) */}
+            {activeModalTab === 'bom' && selectedStockModal.material_type === 'FG' && (
+              <div className="space-y-3">
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-100 text-[11px] font-bold text-slate-700 border-b border-slate-200">
+                      <tr>
+                        <th className="p-2.5 text-center w-10">#</th>
+                        <th className="p-2.5">Child Part (RM)</th>
+                        <th className="p-2.5 text-right">Qty / Unit</th>
+                        <th className="p-2.5 text-right">Store Stock</th>
+                        <th className="p-2.5">Configured Brand Varieties</th>
+                        <th className="p-2.5 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {(!selectedStockModal.bom_child_parts || selectedStockModal.bom_child_parts.length === 0) ? (
+                        <tr>
+                          <td colSpan={6} className="p-6 text-center text-slate-400">
+                            No BOM recipe child parts configured for this SKU.
+                          </td>
+                        </tr>
+                      ) : (
+                        selectedStockModal.bom_child_parts.map((bp, bIdx) => {
+                          const isSufficient = (bp.current_stock || 0) >= (bp.quantity_per_unit || 1);
+                          return (
+                            <tr key={bp.rm_id || bIdx} className="hover:bg-slate-50/70">
+                              <td className="p-2.5 text-center font-mono text-slate-400">{bIdx + 1}</td>
+                              <td className="p-2.5">
+                                <span className="font-mono text-[10px] text-slate-500 font-bold block">{bp.rm_code}</span>
+                                <span className="font-bold text-slate-900 text-xs">{bp.material_name}</span>
+                              </td>
+                              <td className="p-2.5 text-right font-mono font-bold text-slate-800">
+                                {bp.quantity_per_unit} {bp.unit_code}
+                              </td>
+                              <td className="p-2.5 text-right font-mono font-bold">
+                                <span className={isSufficient ? 'text-emerald-700' : 'text-rose-700'}>
+                                  {bp.current_stock || 0} {bp.unit_code}
+                                </span>
+                              </td>
+                              <td className="p-2.5">
+                                {bp.variants && bp.variants.length > 0 ? (
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    {bp.variants.map((v) => (
+                                      <span key={v.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 text-[10px] font-bold border border-purple-200">
+                                        <span>{v.brand_name}:</span>
+                                        <span className="font-mono">{v.current_stock || 0}</span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-400 text-[10px] italic">Universal stock only</span>
+                                )}
+                              </td>
+                              <td className="p-2.5 text-center">
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                                  isSufficient ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                                }`}>
+                                  {isSufficient ? 'In Stock' : 'Low Stock'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setSelectedStockModal(null)}
+                className="px-4 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -873,6 +873,108 @@ class StockController {
             $todayTxMap = [];
         }
 
+        // 4.1 Fetch Warehouses & Live Warehouse-Wise Stock
+        $whStmt = $db->query("SELECT id, warehouse_code, warehouse_name, location FROM warehouses WHERE active = 1 ORDER BY id ASC");
+        $warehouses = $whStmt->fetchAll();
+
+        $stockStmt = $db->query("
+            SELECT s.material_type, s.material_id, s.warehouse_id, 
+                   COALESCE(s.quantity, 0) AS quantity,
+                   COALESCE(s.reserved_quantity, 0) AS reserved_quantity,
+                   COALESCE(s.available_quantity, 0) AS available_quantity,
+                   w.warehouse_code, w.warehouse_name, w.location
+            FROM stock s
+            JOIN warehouses w ON s.warehouse_id = w.id
+            WHERE w.active = 1
+        ");
+        $stocksByMatKey = [];
+        foreach ($stockStmt->fetchAll() as $stk) {
+            $key = $stk['material_type'] . '_' . $stk['material_id'];
+            if (!isset($stocksByMatKey[$key])) {
+                $stocksByMatKey[$key] = [];
+            }
+            $stocksByMatKey[$key][] = [
+                'warehouse_id'       => (int)$stk['warehouse_id'],
+                'warehouse_code'     => $stk['warehouse_code'],
+                'warehouse_name'     => $stk['warehouse_name'],
+                'location'           => $stk['location'] ?? '',
+                'quantity'           => (float)$stk['quantity'],
+                'reserved_quantity'  => (float)$stk['reserved_quantity'],
+                'available_quantity' => (float)$stk['available_quantity'],
+            ];
+        }
+
+        // 4.2 Fetch Sub-Child Parts (Brand Variants e.g. Somany, Prince Pipe)
+        $variantsByRmId = [];
+        try {
+            $scpStmt = $db->query("
+                SELECT 
+                    scp.id,
+                    scp.parent_rm_id,
+                    scp.sub_part_code,
+                    scp.sub_part_name,
+                    scp.brand_name,
+                    scp.party_id,
+                    scp.unit_id,
+                    scp.standard_rate,
+                    COALESCE(scp.current_stock, 0) AS current_stock,
+                    p.party_name AS mapped_customer_name
+                FROM sub_child_parts scp
+                LEFT JOIN parties p ON scp.party_id = p.id
+                WHERE scp.active = 1
+                ORDER BY scp.brand_name ASC, scp.sub_part_name ASC
+            ");
+            foreach ($scpStmt->fetchAll() as $scp) {
+                $pId = (int)$scp['parent_rm_id'];
+                if (!isset($variantsByRmId[$pId])) {
+                    $variantsByRmId[$pId] = [];
+                }
+                $variantsByRmId[$pId][] = [
+                    'id'                   => (int)$scp['id'],
+                    'parent_rm_id'         => $pId,
+                    'sub_part_code'        => $scp['sub_part_code'],
+                    'sub_part_name'        => $scp['sub_part_name'],
+                    'brand_name'           => $scp['brand_name'],
+                    'standard_rate'        => (float)$scp['standard_rate'],
+                    'current_stock'        => (float)$scp['current_stock'],
+                    'mapped_customer_name' => $scp['mapped_customer_name'] ?? null,
+                ];
+            }
+        } catch (Exception $e) {}
+
+        // 4.3 Fetch BOM recipe child parts for Finished Goods
+        $bomByFgId = [];
+        try {
+            $bomStmt = $db->query("
+                SELECT b.fg_id, bi.rm_id, rm.rm_code, rm.material_name, bi.quantity_per_unit, u.unit_code,
+                       COALESCE(stk.quantity, 0) AS current_stock
+                FROM boms b
+                JOIN bom_items bi ON bi.bom_id = b.id
+                JOIN raw_materials rm ON bi.rm_id = rm.id
+                JOIN units u ON bi.unit_id = u.id
+                LEFT JOIN stock stk ON stk.material_type = 'RM' AND stk.material_id = rm.id AND stk.warehouse_id = 1
+                WHERE b.status = 'ACTIVE'
+                ORDER BY b.fg_id, bi.sequence ASC
+            ");
+            foreach ($bomStmt->fetchAll() as $bRow) {
+                $fgId = (int)$bRow['fg_id'];
+                $rmId = (int)$bRow['rm_id'];
+                if (!isset($bomByFgId[$fgId])) {
+                    $bomByFgId[$fgId] = [];
+                }
+                $bomByFgId[$fgId][] = [
+                    'rm_id'             => $rmId,
+                    'rm_code'           => $bRow['rm_code'],
+                    'material_name'     => $bRow['material_name'],
+                    'quantity_per_unit' => (float)$bRow['quantity_per_unit'],
+                    'unit_code'         => $bRow['unit_code'],
+                    'current_stock'     => (float)$bRow['current_stock'],
+                    'variants'          => $variantsByRmId[$rmId] ?? [],
+                    'godown_stocks'     => $stocksByMatKey["RM_{$rmId}"] ?? []
+                ];
+            }
+        } catch (Exception $e) {}
+
         // 5. Build response items with status color flags
         $items = [];
         $sNo = 1;
@@ -955,30 +1057,35 @@ class StockController {
 
             $currentZoneInfo = self::calculateStockZone($currentStock, $maxLevel, $minLevel);
 
+            $matKey = ($p['material_type'] ?? 'FG') . '_' . $matId;
+
             $items[] = [
-                's_no'           => $sNo++,
-                'id'             => $p['id'],
-                'cat_no'         => $p['cat_no'],
-                'item_name'      => $p['item_name'],
-                'material_type'  => $p['material_type'] ?? 'FG',
-                'item_type'      => $p['item_type'] ?? ($p['material_type'] === 'RM' ? 'Raw Material' : 'Finished Good'),
-                'stock_type'     => $p['item_type'] ?? ($p['material_type'] === 'RM' ? 'Raw Material' : 'Finished Good'),
-                'group_name'     => $p['group_name'],
-                'max_level'      => $maxLevel,
-                'min_level'      => $minLevel,
-                'current_stock'  => $currentStock,
-                'current_zone'   => $currentZoneInfo['zone'],
-                'current_ratio'  => $currentZoneInfo['ratio'],
-                'current_status' => $currentZoneInfo['status'],
-                'current_label'  => $currentZoneInfo['label'],
-                'opening_stock'  => $yesterdayClosing,
-                'today_sales'    => $todaySales,
-                'today_purchase' => $todayPurchase,
-                'today_prod'     => $todayProd,
-                'today_in'       => $todayIn,
-                'today_out'      => $todayOut,
-                'unit_code'      => $p['unit_code'],
-                'day_stock'      => $dayStock
+                's_no'            => $sNo++,
+                'id'              => $p['id'],
+                'cat_no'          => $p['cat_no'],
+                'item_name'       => $p['item_name'],
+                'material_type'   => $p['material_type'] ?? 'FG',
+                'item_type'       => $p['item_type'] ?? ($p['material_type'] === 'RM' ? 'Raw Material' : 'Finished Good'),
+                'stock_type'      => $p['item_type'] ?? ($p['material_type'] === 'RM' ? 'Raw Material' : 'Finished Good'),
+                'group_name'      => $p['group_name'],
+                'max_level'       => $maxLevel,
+                'min_level'       => $minLevel,
+                'current_stock'   => $currentStock,
+                'current_zone'    => $currentZoneInfo['zone'],
+                'current_ratio'   => $currentZoneInfo['ratio'],
+                'current_status'  => $currentZoneInfo['status'],
+                'current_label'   => $currentZoneInfo['label'],
+                'opening_stock'   => $yesterdayClosing,
+                'today_sales'     => $todaySales,
+                'today_purchase'  => $todayPurchase,
+                'today_prod'      => $todayProd,
+                'today_in'        => $todayIn,
+                'today_out'       => $todayOut,
+                'unit_code'       => $p['unit_code'],
+                'day_stock'       => $dayStock,
+                'godown_stocks'   => $stocksByMatKey[$matKey] ?? [],
+                'variants'        => ($p['material_type'] === 'RM') ? ($variantsByRmId[$matId] ?? []) : [],
+                'bom_child_parts' => ($p['material_type'] === 'FG') ? ($bomByFgId[$matId] ?? []) : []
             ];
         }
 
@@ -993,6 +1100,7 @@ class StockController {
             'is_current_month' => ($month === date('Y-m')),
             'groups'           => $allGroups,
             'total_items'      => count($items),
+            'warehouses'       => $warehouses,
             'items'            => $items
         ]);
     }
