@@ -23,6 +23,7 @@ class SubChildPartController {
                     `party_id` INT NULL,
                     `unit_id` INT NOT NULL DEFAULT 1,
                     `standard_rate` DECIMAL(12, 2) DEFAULT 0.00,
+                    `current_stock` DECIMAL(14, 3) NOT NULL DEFAULT 0.000,
                     `description` TEXT NULL,
                     `active` TINYINT(1) DEFAULT 1,
                     `created_by` INT NULL,
@@ -36,6 +37,11 @@ class SubChildPartController {
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             ";
             $db->exec($sql);
+
+            // Self-healing: Ensure current_stock column exists if table was created previously
+            try {
+                $db->exec("ALTER TABLE `sub_child_parts` ADD COLUMN `current_stock` DECIMAL(14, 3) NOT NULL DEFAULT 0.000 AFTER `standard_rate`");
+            } catch (Exception $e2) {}
         } catch (Exception $e) {
             // Silently ignore if already exists or permission issue
         }
@@ -65,6 +71,7 @@ class SubChildPartController {
                 scp.party_id,
                 scp.unit_id,
                 scp.standard_rate,
+                COALESCE(scp.current_stock, 0) as current_stock,
                 scp.description,
                 scp.active,
                 scp.created_at,

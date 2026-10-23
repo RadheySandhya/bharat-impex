@@ -66,7 +66,119 @@ class InOutController {
         Auth::requireAuth();
         $db = Database::getConnection();
 
-        // Raw Materials
+        // Self-healing: ensure current_stock column on sub_child_parts
+        try {
+            $db->exec("ALTER TABLE `sub_child_parts` ADD COLUMN `current_stock` DECIMAL(14, 3) NOT NULL DEFAULT 0.000 AFTER `standard_rate`");
+        } catch (Exception $e) {}
+
+        // 1. Fetch Warehouses
+        $whStmt = $db->query("SELECT id, warehouse_code, warehouse_name, location FROM warehouses WHERE active = 1 ORDER BY id ASC");
+        $warehouses = $whStmt->fetchAll();
+
+        // 2. Fetch all stocks by warehouse
+        $stockStmt = $db->query("
+            SELECT s.material_type, s.material_id, s.warehouse_id, 
+                   COALESCE(s.quantity, 0) AS quantity,
+                   COALESCE(s.reserved_quantity, 0) AS reserved_quantity,
+                   COALESCE(s.available_quantity, 0) AS available_quantity,
+                   w.warehouse_code, w.warehouse_name
+            FROM stock s
+            JOIN warehouses w ON s.warehouse_id = w.id
+            WHERE w.active = 1
+        ");
+        $allStocks = $stockStmt->fetchAll();
+
+        $stocksByMatKey = [];
+        foreach ($allStocks as $stk) {
+            $key = $stk['material_type'] . '_' . $stk['material_id'];
+            if (!isset($stocksByMatKey[$key])) {
+                $stocksByMatKey[$key] = [];
+            }
+            $stocksByMatKey[$key][] = [
+                'warehouse_id'       => (int)$stk['warehouse_id'],
+                'warehouse_code'     => $stk['warehouse_code'],
+                'warehouse_name'     => $stk['warehouse_name'],
+                'quantity'           => (float)$stk['quantity'],
+                'reserved_quantity'  => (float)$stk['reserved_quantity'],
+                'available_quantity' => (float)$stk['available_quantity'],
+            ];
+        }
+
+        // 3. Fetch Sub-Child Parts (Varieties)
+        $subChildParts = [];
+        $variantsByRmId = [];
+        try {
+            $scpStmt = $db->query("
+                SELECT 
+                    scp.id,
+                    scp.parent_rm_id,
+                    scp.sub_part_code,
+                    scp.sub_part_name,
+                    scp.brand_name,
+                    scp.party_id,
+                    scp.unit_id,
+                    scp.standard_rate,
+                    COALESCE(scp.current_stock, 0) AS current_stock,
+                    p.party_name AS mapped_customer_name
+                FROM sub_child_parts scp
+                LEFT JOIN parties p ON scp.party_id = p.id
+                WHERE scp.active = 1
+                ORDER BY scp.brand_name ASC, scp.sub_part_name ASC
+            ");
+            $subChildParts = $scpStmt->fetchAll();
+            foreach ($subChildParts as $scp) {
+                $pId = (int)$scp['parent_rm_id'];
+                if (!isset($variantsByRmId[$pId])) {
+                    $variantsByRmId[$pId] = [];
+                }
+                $variantsByRmId[$pId][] = [
+                    'id'                   => (int)$scp['id'],
+                    'parent_rm_id'         => $pId,
+                    'sub_part_code'        => $scp['sub_part_code'],
+                    'sub_part_name'        => $scp['sub_part_name'],
+                    'brand_name'           => $scp['brand_name'],
+                    'standard_rate'        => (float)$scp['standard_rate'],
+                    'current_stock'        => (float)$scp['current_stock'],
+                    'mapped_customer_name' => $scp['mapped_customer_name'] ?? null,
+                ];
+            }
+        } catch (Exception $e) {}
+
+        // 4. Fetch Active BOM Child Parts for Finished Goods
+        $bomByFgId = [];
+        try {
+            $bomStmt = $db->query("
+                SELECT b.fg_id, bi.rm_id, rm.rm_code, rm.material_name, bi.quantity_per_unit, u.unit_code,
+                       COALESCE(stk.quantity, 0) AS current_stock
+                FROM boms b
+                JOIN bom_items bi ON bi.bom_id = b.id
+                JOIN raw_materials rm ON bi.rm_id = rm.id
+                JOIN units u ON bi.unit_id = u.id
+                LEFT JOIN stock stk ON stk.material_type = 'RM' AND stk.material_id = rm.id AND stk.warehouse_id = 1
+                WHERE b.status = 'ACTIVE'
+                ORDER BY b.fg_id, bi.sequence ASC
+            ");
+            $bomRows = $bomStmt->fetchAll();
+            foreach ($bomRows as $bRow) {
+                $fgId = (int)$bRow['fg_id'];
+                if (!isset($bomByFgId[$fgId])) {
+                    $bomByFgId[$fgId] = [];
+                }
+                $rmId = (int)$bRow['rm_id'];
+                $bomByFgId[$fgId][] = [
+                    'rm_id'              => $rmId,
+                    'rm_code'            => $bRow['rm_code'],
+                    'material_name'      => $bRow['material_name'],
+                    'quantity_per_unit'  => (float)$bRow['quantity_per_unit'],
+                    'unit_code'          => $bRow['unit_code'],
+                    'current_stock'      => (float)$bRow['current_stock'],
+                    'variants'           => $variantsByRmId[$rmId] ?? [],
+                    'godown_stocks'      => $stocksByMatKey["RM_{$rmId}"] ?? []
+                ];
+            }
+        } catch (Exception $e) {}
+
+        // 5. Raw Materials
         $rmStmt = $db->query("
             SELECT 
                 rm.id,
@@ -84,8 +196,15 @@ class InOutController {
             ORDER BY rm.material_name ASC
         ");
         $rms = $rmStmt->fetchAll();
+        foreach ($rms as &$rm) {
+            $rmId = (int)$rm['id'];
+            $rm['current_stock'] = (float)$rm['current_stock'];
+            $rm['default_rate']  = (float)$rm['default_rate'];
+            $rm['variants']      = $variantsByRmId[$rmId] ?? [];
+            $rm['godown_stocks'] = $stocksByMatKey["RM_{$rmId}"] ?? [];
+        }
 
-        // Finished Goods
+        // 6. Finished Goods
         $fgStmt = $db->query("
             SELECT 
                 fg.id,
@@ -103,8 +222,15 @@ class InOutController {
             ORDER BY fg.product_name ASC
         ");
         $fgs = $fgStmt->fetchAll();
+        foreach ($fgs as &$fg) {
+            $fgId = (int)$fg['id'];
+            $fg['current_stock']   = (float)$fg['current_stock'];
+            $fg['default_rate']    = (float)$fg['default_rate'];
+            $fg['bom_child_parts'] = $bomByFgId[$fgId] ?? [];
+            $fg['godown_stocks']   = $stocksByMatKey["FG_{$fgId}"] ?? [];
+        }
 
-        // Sub-SKUs (Brand / Client Mappings)
+        // 7. Sub-SKUs (Brand / Client Mappings)
         $subSkus = [];
         try {
             $subSkuStmt = $db->query("
@@ -134,29 +260,34 @@ class InOutController {
 
         $subSkuFormatted = [];
         foreach ($subSkus as $sub) {
+            $pId = (int)$sub['parent_fg_id'];
             $subSkuFormatted[] = [
-                'id'            => $sub['parent_fg_id'], // Links directly to parent FG ID so stock decreases from parent!
-                'sub_sku_id'    => $sub['sub_sku_id'],
-                'material_type' => 'FG',
-                'item_code'     => $sub['sub_sku_code'],
-                'item_name'     => "{$sub['sub_sku_name']} [Brand: {$sub['brand_name']}]",
-                'clean_name'    => $sub['sub_sku_name'],
-                'brand_name'    => $sub['brand_name'],
-                'unit_id'       => $sub['unit_id'],
-                'unit_code'     => $sub['unit_code'],
-                'default_rate'  => (float)($sub['selling_price'] ?: 0),
-                'current_stock' => (float)$sub['current_stock'],
-                'is_sub_sku'    => true,
-                'parent_fg_id'  => $sub['parent_fg_id'],
-                'parent_fg_name'=> $sub['parent_product_name']
+                'id'              => $pId,
+                'sub_sku_id'      => $sub['sub_sku_id'],
+                'material_type'   => 'FG',
+                'item_code'       => $sub['sub_sku_code'],
+                'item_name'       => "{$sub['sub_sku_name']} [Brand: {$sub['brand_name']}]",
+                'clean_name'      => $sub['sub_sku_name'],
+                'brand_name'      => $sub['brand_name'],
+                'unit_id'         => $sub['unit_id'],
+                'unit_code'       => $sub['unit_code'],
+                'default_rate'    => (float)($sub['selling_price'] ?: 0),
+                'current_stock'   => (float)$sub['current_stock'],
+                'is_sub_sku'      => true,
+                'parent_fg_id'    => $pId,
+                'parent_fg_name'  => $sub['parent_product_name'],
+                'godown_stocks'   => $stocksByMatKey["FG_{$pId}"] ?? [],
+                'bom_child_parts' => $bomByFgId[$pId] ?? []
             ];
         }
 
         Response::success([
-            'raw_materials'  => $rms,
-            'finished_goods' => $fgs,
-            'sub_skus'       => $subSkus,
-            'all_items'      => array_merge($rms, $fgs, $subSkuFormatted)
+            'raw_materials'   => $rms,
+            'finished_goods'  => $fgs,
+            'sub_skus'        => $subSkus,
+            'sub_child_parts' => $subChildParts,
+            'warehouses'      => $warehouses,
+            'all_items'       => array_merge($rms, $fgs, $subSkuFormatted)
         ]);
     }
 
@@ -334,16 +465,47 @@ class InOutController {
                         $amount = round($quantity * $effectiveRate, 2);
                         $warehouseId = InventoryService::getValidWarehouseId((int)($row['warehouse_id'] ?? 0));
 
+                        $subChildPartId = !empty($row['sub_child_part_id']) ? (int)$row['sub_child_part_id'] : null;
+                        $subPartName    = !empty($row['sub_part_name']) ? trim($row['sub_part_name']) : null;
+                        $subPartBrand   = !empty($row['sub_part_brand']) ? trim($row['sub_part_brand']) : null;
+
+                        if ($subChildPartId && (!$subPartName || !$subPartBrand)) {
+                            try {
+                                $scpStmt = $db->prepare("SELECT sub_part_name, brand_name, sub_part_code, standard_rate FROM sub_child_parts WHERE id = ?");
+                                $scpStmt->execute([$subChildPartId]);
+                                $scpRow = $scpStmt->fetch(PDO::FETCH_ASSOC);
+                                if ($scpRow) {
+                                    $subPartName = $scpRow['sub_part_name'];
+                                    $subPartBrand = $scpRow['brand_name'];
+                                }
+                            } catch (Exception $e) {}
+                        }
+
+                        $varLabel = ($subPartBrand || $subPartName)
+                            ? " [Variant: " . trim(($subPartBrand ? "[$subPartBrand] " : "") . $subPartName) . "]"
+                            : "";
+
+                        // Increase variant stock
+                        if ($subChildPartId > 0) {
+                            try {
+                                $db->prepare("UPDATE sub_child_parts SET current_stock = current_stock + ? WHERE id = ?")
+                                   ->execute([$quantity, $subChildPartId]);
+                            } catch (Exception $e) {}
+                        }
+
+                        $tallyName = $rm['material_name'] . $varLabel;
+                        $refNum = $subChildPartId ? "VAR:{$subChildPartId}" : null;
+
                         // Record in purchase_inputs table
                         $db->prepare("
                             INSERT INTO purchase_inputs (
                                 purchase_date, invoice_number, supplier_name, tally_item_name,
-                                rm_id, rm_code, warehouse_id, quantity, unit_id, rate, amount, source, created_by, created_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL_ENTRY', ?, NOW())
+                                rm_id, rm_code, warehouse_id, quantity, unit_id, rate, amount, source, reference_number, created_by, created_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL_ENTRY', ?, ?, NOW())
                         ")->execute([
-                            $date, $invoiceNumber, $partyName, $rm['material_name'],
+                            $date, $invoiceNumber, $partyName, $tallyName,
                             $itemId, $rm['rm_code'], $warehouseId, $quantity, $rm['unit_id'],
-                            $effectiveRate, $amount, $user['id']
+                            $effectiveRate, $amount, $refNum, $user['id']
                         ]);
 
                         // Stock engine: increase stock & ledger
@@ -359,9 +521,9 @@ class InOutController {
                             'PURCHASE',
                             $invoiceNumber,
                             $invoiceNumber,
-                            null,
+                            $refNum,
                             $date,
-                            "Inward from {$partyName} (Inv: {$invoiceNumber}) - {$remarks}",
+                            "Inward from {$partyName} (Inv: {$invoiceNumber}){$varLabel} - {$remarks}",
                             $user['id']
                         );
                     } else {

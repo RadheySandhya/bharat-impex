@@ -873,6 +873,14 @@ class ProductionController {
                     $allowOverride
                 );
 
+                // Decrement variant stock if tracked
+                if ($subChildPartId > 0) {
+                    try {
+                        $db->prepare("UPDATE sub_child_parts SET current_stock = GREATEST(0, current_stock - ?) WHERE id = ?")
+                           ->execute([$reqQty, $subChildPartId]);
+                    } catch (Exception $e) {}
+                }
+
                 $deductionResults[] = [
                     'rm_id'             => $rmId,
                     'rm_code'           => $rmData['rm_code'],

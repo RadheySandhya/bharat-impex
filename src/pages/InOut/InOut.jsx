@@ -20,9 +20,14 @@ import {
   Building2,
   FileText,
   DollarSign,
-  Package
+  Package,
+  Boxes,
+  Check,
+  ChevronRight,
+  Info
 } from 'lucide-react';
 import Icon from '../../components/UI/Icon';
+import Modal from '../../components/UI/Modal';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
@@ -39,9 +44,31 @@ export function InOut() {
   const [finishedGoods, setFinishedGoods] = useState([]);
   const [subSkus, setSubSkus] = useState([]);
   const [allItems, setAllItems] = useState([]);
+  const [warehouses, setWarehouses] = useState([]);
+  const [subChildParts, setSubChildParts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+
+  // Modals and Hover Tooltip States
+  const [variantModalState, setVariantModalState] = useState({
+    isOpen: false,
+    rowIndex: null,
+    item: null,
+    variants: [],
+    selectedVariantId: null
+  });
+  const [childPartStockModal, setChildPartStockModal] = useState({
+    isOpen: false,
+    row: null,
+    item: null
+  });
+  const [godownStockModal, setGodownStockModal] = useState({
+    isOpen: false,
+    row: null,
+    item: null
+  });
+  const [hoverStock, setHoverStock] = useState(null);
 
   // Spreadsheet Rows State
   const [rows, setRows] = useState([]);
@@ -83,12 +110,16 @@ export function InOut() {
       const sSkus = itemsRes?.data?.sub_skus || [];
       const all = itemsRes?.data?.all_items || [...rms, ...fgs];
       const pList = partiesRes?.data || [];
+      const whList = itemsRes?.data?.warehouses || [];
+      const scpList = itemsRes?.data?.sub_child_parts || [];
 
       setRawMaterials(rms);
       setFinishedGoods(fgs);
       setSubSkus(sSkus);
       setAllItems(all);
       setParties(pList);
+      setWarehouses(whList);
+      setSubChildParts(scpList);
 
       // Initialize with default 5 blank/sample rows if sheet is empty
       if (rows.length === 0) {
@@ -130,12 +161,52 @@ export function InOut() {
       item_code: item ? item.item_code : '',
       unit_code: item ? item.unit_code : 'PCS',
       current_stock: item ? (parseFloat(item.current_stock) || 0) : 0,
+      sub_child_part_id: null,
+      sub_part_name: '',
+      sub_part_brand: '',
+      sub_part_code: '',
       quantity: 1,
       rate: item ? (parseFloat(item.default_rate) || 0) : 0,
       date: today,
       invoice_number: '',
       remarks: ''
     };
+  };
+
+  // Helper: Handle Variant Selection
+  const handleSelectVariant = (rowIndex, variant) => {
+    setRows(prev => {
+      const next = [...prev];
+      if (!next[rowIndex]) return prev;
+      const row = { ...next[rowIndex] };
+      if (!variant) {
+        // Standard / Universal selected
+        row.sub_child_part_id = null;
+        row.sub_part_name = '';
+        row.sub_part_brand = '';
+        row.sub_part_code = '';
+        const item = rawMaterials.find(rm => String(rm.id) === String(row.item_id));
+        if (item) {
+          row.current_stock = parseFloat(item.current_stock) || 0;
+          if (!row.rate || row.rate === 0) {
+            row.rate = parseFloat(item.default_rate) || 0;
+          }
+        }
+      } else {
+        row.sub_child_part_id = variant.id;
+        row.sub_part_name = variant.sub_part_name;
+        row.sub_part_brand = variant.brand_name;
+        row.sub_part_code = variant.sub_part_code;
+        row.current_stock = parseFloat(variant.current_stock) || 0;
+        if (parseFloat(variant.standard_rate) > 0) {
+          row.rate = parseFloat(variant.standard_rate);
+        }
+      }
+      next[rowIndex] = row;
+      return next;
+    });
+    setIsDirty(true);
+    setVariantModalState({ isOpen: false, rowIndex: null, item: null, variants: [], selectedVariantId: null });
   };
 
   // Add 1 Row
@@ -193,6 +264,10 @@ export function InOut() {
         // Adjust default material type when transaction type toggles
         const newMatType = value === 'IN' ? 'RM' : 'FG';
         row.material_type = newMatType;
+        row.sub_child_part_id = null;
+        row.sub_part_name = '';
+        row.sub_part_brand = '';
+        row.sub_part_code = '';
         const candidateItems = newMatType === 'RM' ? rawMaterials : finishedGoods;
         const def = candidateItems[0];
         if (def) {
@@ -205,6 +280,10 @@ export function InOut() {
         }
       } else if (field === 'material_type') {
         row.material_type = value;
+        row.sub_child_part_id = null;
+        row.sub_part_name = '';
+        row.sub_part_brand = '';
+        row.sub_part_code = '';
         const candidateItems = value === 'RM' ? rawMaterials : finishedGoods;
         const def = candidateItems[0];
         if (def) {
@@ -230,10 +309,18 @@ export function InOut() {
             if (!row.rate || row.rate === 0) {
               row.rate = parseFloat(sub.selling_price) || 0;
             }
+            row.sub_child_part_id = null;
+            row.sub_part_name = '';
+            row.sub_part_brand = '';
+            row.sub_part_code = '';
           }
         } else {
           row.sub_sku_id = null;
           row.clean_name = '';
+          row.sub_child_part_id = null;
+          row.sub_part_name = '';
+          row.sub_part_brand = '';
+          row.sub_part_code = '';
           const candidateItems = row.material_type === 'RM' ? rawMaterials : finishedGoods;
           const selected = candidateItems.find(it => String(it.id) === String(value));
           if (selected) {
@@ -244,6 +331,17 @@ export function InOut() {
             row.current_stock = parseFloat(selected.current_stock) || 0;
             if (!row.rate || row.rate === 0) {
               row.rate = parseFloat(selected.default_rate) || 0;
+            }
+
+            // Auto-trigger Variant selection pop-up modal when Child Part has brand variants!
+            if (row.material_type === 'RM' && selected.variants && selected.variants.length > 0) {
+              setVariantModalState({
+                isOpen: true,
+                rowIndex: index,
+                item: selected,
+                variants: selected.variants,
+                selectedVariantId: null
+              });
             }
           }
         }
@@ -307,6 +405,10 @@ export function InOut() {
         party_name: r.party_name.trim(),
         material_type: r.material_type,
         item_id: parseInt(r.item_id, 10),
+        sub_child_part_id: r.sub_child_part_id || null,
+        sub_part_name: r.sub_part_name || '',
+        sub_part_brand: r.sub_part_brand || '',
+        sub_part_code: r.sub_part_code || '',
         quantity: parseFloat(r.quantity),
         rate: parseFloat(r.rate || 0),
         date: r.date || new Date().toISOString().split('T')[0],
@@ -751,6 +853,7 @@ export function InOut() {
                       const originalIdx = row.originalIndex;
                       const isOut = row.type === 'OUT';
                       const candidateItems = row.material_type === 'RM' ? rawMaterials : finishedGoods;
+                      const itemObj = candidateItems.find(it => String(it.id) === String(row.item_id));
                       const amount = (parseFloat(row.quantity || 0) * parseFloat(row.rate || 0)).toFixed(2);
                       const isLowStock = isOut && row.current_stock < parseFloat(row.quantity || 0);
 
@@ -823,43 +926,119 @@ export function InOut() {
                             </select>
                           </td>
 
-                          {/* Col D: Item Name (Searchable Dropdown) */}
+                          {/* Col D: Item Name (Searchable Dropdown + Variant Badge + 2 Action Buttons) */}
                           <td className="p-1.5">
-                            <SearchableSelect
-                              value={row.sub_sku_id ? `sub_${row.sub_sku_id}` : (row.item_id || '')}
-                              onChange={(val) => handleCellChange(originalIdx, 'item_selection', val)}
-                              placeholder="-- Choose Item --"
-                              searchPlaceholder="Type name, code, brand..."
-                              className="w-full min-w-[260px] max-w-[380px]"
-                              buttonClassName={`text-xs font-semibold rounded-lg px-2 py-1.5 bg-white border ${
-                                isOut ? 'border-rose-300' : 'border-emerald-300'
-                              }`}
-                              options={row.material_type === 'RM' ? (
-                                rawMaterials.map((item) => ({
-                                  value: item.id,
-                                  label: item.item_name,
-                                  sublabel: item.item_code,
-                                  badge: item.unit_code
-                                }))
-                              ) : (
-                                [
-                                  ...subSkus.map((sub) => ({
-                                    value: `sub_${sub.sub_sku_id}`,
-                                    label: `${sub.sub_sku_name} (${sub.brand_name})`,
-                                    sublabel: sub.sub_sku_code,
-                                    category: `Physical: [${sub.parent_fg_code}]`,
-                                    badge: sub.unit_code || 'PCS'
-                                  })),
-                                  ...finishedGoods.map((item) => ({
-                                    value: item.id,
-                                    label: item.item_name,
-                                    sublabel: item.item_code,
-                                    category: 'Factory SKU',
-                                    badge: item.unit_code || 'PCS'
-                                  }))
-                                ]
-                              )}
-                            />
+                            <div className="flex items-start gap-1">
+                              <div className="flex-1 min-w-[210px]">
+                                <SearchableSelect
+                                  value={row.sub_sku_id ? `sub_${row.sub_sku_id}` : (row.item_id || '')}
+                                  onChange={(val) => handleCellChange(originalIdx, 'item_selection', val)}
+                                  placeholder="-- Choose Item --"
+                                  searchPlaceholder="Type name, code, brand..."
+                                  className="w-full"
+                                  buttonClassName={`text-xs font-semibold rounded-lg px-2 py-1.5 bg-white border ${
+                                    isOut ? 'border-rose-300' : 'border-emerald-300'
+                                  }`}
+                                  options={row.material_type === 'RM' ? (
+                                    rawMaterials.map((item) => ({
+                                      value: item.id,
+                                      label: item.item_name,
+                                      sublabel: item.item_code,
+                                      badge: item.unit_code
+                                    }))
+                                  ) : (
+                                    [
+                                      ...subSkus.map((sub) => ({
+                                        value: `sub_${sub.sub_sku_id}`,
+                                        label: `${sub.sub_sku_name} (${sub.brand_name})`,
+                                        sublabel: sub.sub_sku_code,
+                                        category: `Physical: [${sub.parent_fg_code}]`,
+                                        badge: sub.unit_code || 'PCS'
+                                      })),
+                                      ...finishedGoods.map((item) => ({
+                                        value: item.id,
+                                        label: item.item_name,
+                                        sublabel: item.item_code,
+                                        category: 'Factory SKU',
+                                        badge: item.unit_code || 'PCS'
+                                      }))
+                                    ]
+                                  )}
+                                />
+
+                                {/* Sub-Child Part (Brand Variant) indicator badge for RM */}
+                                {row.material_type === 'RM' && (
+                                  row.sub_child_part_id ? (
+                                    <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-200 shadow-2xs">
+                                        <span className="font-extrabold uppercase text-purple-700">{row.sub_part_brand}:</span>
+                                        <span>{row.sub_part_name}</span>
+                                        {row.sub_part_code && <span className="text-purple-500 font-mono">({row.sub_part_code})</span>}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (itemObj && itemObj.variants?.length > 0) {
+                                            setVariantModalState({
+                                              isOpen: true,
+                                              rowIndex: originalIdx,
+                                              item: itemObj,
+                                              variants: itemObj.variants,
+                                              selectedVariantId: row.sub_child_part_id
+                                            });
+                                          }
+                                        }}
+                                        className="text-[10px] font-bold text-purple-700 hover:text-purple-900 underline cursor-pointer"
+                                      >
+                                        Change
+                                      </button>
+                                    </div>
+                                  ) : (itemObj?.variants && itemObj.variants.length > 0) ? (
+                                    <div className="mt-1 flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setVariantModalState({
+                                            isOpen: true,
+                                            rowIndex: originalIdx,
+                                            item: itemObj,
+                                            variants: itemObj.variants,
+                                            selectedVariantId: null
+                                          });
+                                        }}
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors cursor-pointer"
+                                      >
+                                        <Plus className="w-2.5 h-2.5" />
+                                        <span>Select Brand Variant ({itemObj.variants.length})</span>
+                                      </button>
+                                    </div>
+                                  ) : null
+                                )}
+                              </div>
+
+                              {/* Quick Action Buttons Beside Item Name */}
+                              <div className="flex items-center gap-1 shrink-0 pt-0.5">
+                                {/* Button 1: Child Part / BOM Stock Check */}
+                                <button
+                                  type="button"
+                                  onClick={() => setChildPartStockModal({ isOpen: true, row, item: itemObj })}
+                                  title={row.material_type === 'FG' ? "Check BOM Child Parts & Stock Requirement" : "View Child Part Brand Varieties & Stock"}
+                                  className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors shadow-2xs cursor-pointer"
+                                >
+                                  <Layers className="w-3.5 h-3.5" />
+                                </button>
+
+                                {/* Button 2: Godown-Wise Stock Check */}
+                                <button
+                                  type="button"
+                                  onClick={() => setGodownStockModal({ isOpen: true, row, item: itemObj })}
+                                  title="Check Godown-Wise Stock Breakdown"
+                                  className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 transition-colors shadow-2xs cursor-pointer"
+                                >
+                                  <Building2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
                           </td>
 
                           {/* Col E: Item Code (Read-only badge) */}
@@ -878,8 +1057,20 @@ export function InOut() {
                             </div>
                           </td>
 
-                          {/* Col F: Live Stock */}
-                          <td className="p-2 text-right">
+                          {/* Col F: Live Stock (with live hover breakdown) */}
+                          <td 
+                            className="p-2 text-right cursor-help transition-all hover:bg-slate-100/60"
+                            onMouseEnter={(e) => {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              setHoverStock({
+                                row,
+                                item: itemObj,
+                                x: Math.min(window.innerWidth - 340, Math.max(10, rect.left - 120)),
+                                y: rect.bottom + 6
+                              });
+                            }}
+                            onMouseLeave={() => setHoverStock(null)}
+                          >
                             <div className="flex items-center justify-end gap-1">
                               <span className={`font-mono text-xs font-bold px-1.5 py-0.5 rounded ${
                                 isLowStock 
@@ -1414,6 +1605,551 @@ export function InOut() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* MODAL 1: VARIANT SELECTION POP-UP MODAL */}
+      <Modal
+        isOpen={variantModalState.isOpen}
+        onClose={() => setVariantModalState({ isOpen: false, rowIndex: null, item: null, variants: [], selectedVariantId: null })}
+        title={
+          <div className="flex items-center gap-2">
+            <Boxes className="w-5 h-5 text-purple-600" />
+            <span>Select Brand Variant — {variantModalState.item?.item_name || 'Child Part'}</span>
+          </div>
+        }
+        maxWidth="max-w-xl"
+      >
+        <div className="space-y-4">
+          <div className="p-3 bg-purple-50 rounded-xl border border-purple-200 text-xs text-purple-900 flex items-start gap-2.5">
+            <Info className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Multiple Brand Varieties Configured</p>
+              <p className="text-purple-700 mt-0.5 leading-relaxed">
+                This child part <strong>[{variantModalState.item?.item_code}]</strong> has configured brand varieties (e.g. Somany, Prince Pipe). Choose which specific brand variant is being received:
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
+            {/* Standard / Universal Option */}
+            <div
+              onClick={() => handleSelectVariant(variantModalState.rowIndex, null)}
+              className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer flex items-center justify-between ${
+                !variantModalState.selectedVariantId
+                  ? 'border-purple-600 bg-purple-50/50 shadow-xs'
+                  : 'border-slate-200 hover:border-slate-300 bg-white'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                  !variantModalState.selectedVariantId ? 'border-purple-600' : 'border-slate-300'
+                }`}>
+                  {!variantModalState.selectedVariantId && <div className="w-2 h-2 rounded-full bg-purple-600" />}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-800 text-xs">Standard / Universal (Generic)</span>
+                    <span className="text-[10px] bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded border border-slate-200">No Brand</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Live Total Stock: {variantModalState.item?.current_stock || 0} {variantModalState.item?.unit_code || 'PCS'}
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-xs font-bold text-slate-800">₹{parseFloat(variantModalState.item?.default_rate || 0).toFixed(2)}</span>
+                <span className="block text-[10px] text-slate-400">Default Rate</span>
+              </div>
+            </div>
+
+            {/* Configured Brand Variants */}
+            {variantModalState.variants?.map((v) => {
+              const isSelected = variantModalState.selectedVariantId === v.id;
+              return (
+                <div
+                  key={v.id}
+                  onClick={() => handleSelectVariant(variantModalState.rowIndex, v)}
+                  className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer flex items-center justify-between ${
+                    isSelected
+                      ? 'border-purple-600 bg-purple-50/50 shadow-xs'
+                      : 'border-slate-200 hover:border-purple-300 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                      isSelected ? 'border-purple-600' : 'border-slate-300'
+                    }`}>
+                      {isSelected && <div className="w-2 h-2 rounded-full bg-purple-600" />}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-purple-600 text-white shadow-2xs">
+                          {v.brand_name}
+                        </span>
+                        <span className="font-bold text-slate-900 text-xs">{v.sub_part_name}</span>
+                        <span className="font-mono text-[10px] text-slate-500 bg-slate-100 px-1 rounded border border-slate-200">
+                          {v.sub_part_code}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-1">
+                        <span>Current Variant Stock: <strong className="text-slate-800">{v.current_stock || 0}</strong> {variantModalState.item?.unit_code || 'PCS'}</span>
+                        {v.mapped_customer_name && (
+                          <span className="text-indigo-600 font-medium">Mapped: {v.mapped_customer_name}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs font-bold text-slate-800">₹{parseFloat(v.standard_rate || 0).toFixed(2)}</span>
+                    <span className="block text-[10px] text-slate-400">Variant Rate</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => handleSelectVariant(variantModalState.rowIndex, null)}
+              className="text-xs text-slate-500 hover:text-slate-800 font-semibold cursor-pointer"
+            >
+              Skip & Use Standard
+            </button>
+            <button
+              type="button"
+              onClick={() => setVariantModalState({ isOpen: false, rowIndex: null, item: null, variants: [], selectedVariantId: null })}
+              className="px-4 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* MODAL 2: CHILD PART / BOM STOCK CHECK MODAL */}
+      <Modal
+        isOpen={childPartStockModal.isOpen}
+        onClose={() => setChildPartStockModal({ isOpen: false, row: null, item: null })}
+        title={
+          <div className="flex items-center gap-2">
+            <Layers className="w-5 h-5 text-blue-600" />
+            <span>
+              {childPartStockModal.row?.material_type === 'FG' 
+                ? `BOM Child Parts & Stock Requirement — ${childPartStockModal.item?.item_name || 'Finished Good'}`
+                : `Child Part Brand Varieties & Live Stock — ${childPartStockModal.item?.item_name || 'Child Part'}`}
+            </span>
+          </div>
+        }
+        maxWidth="max-w-3xl"
+      >
+        <div className="space-y-4">
+          {/* Header Summary Card */}
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono font-bold bg-white px-2 py-0.5 rounded border border-slate-300 text-slate-700">
+                  {childPartStockModal.item?.item_code || '-'}
+                </span>
+                <span className="text-xs font-extrabold text-slate-900">
+                  {childPartStockModal.item?.item_name || '-'}
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                  {childPartStockModal.row?.material_type === 'FG' ? 'Finished Good SKU' : 'Raw Material / Child Part'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                {childPartStockModal.row?.material_type === 'FG'
+                  ? 'Live stock and requirement of constituent child parts needed to assemble this SKU'
+                  : 'Brand varieties (Somany, Prince Pipe, etc.) configured under this child part'}
+              </p>
+            </div>
+            <div className="text-right">
+              <span className="text-sm font-black font-mono text-slate-900">
+                {childPartStockModal.item?.current_stock || 0} {childPartStockModal.item?.unit_code || 'PCS'}
+              </span>
+              <span className="block text-[10px] text-slate-400">Total Live Stock</span>
+            </div>
+          </div>
+
+          {/* Table Content */}
+          {childPartStockModal.row?.material_type === 'FG' ? (
+            /* Finished Good: BOM Items */
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-100 text-[11px] font-bold text-slate-700 border-b border-slate-200">
+                  <tr>
+                    <th className="p-2.5 text-center w-10">#</th>
+                    <th className="p-2.5">Child Part (RM)</th>
+                    <th className="p-2.5 text-right">Qty / Unit</th>
+                    <th className="p-2.5 text-right">Store Stock</th>
+                    <th className="p-2.5">Configured Brand Varieties</th>
+                    <th className="p-2.5 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(!childPartStockModal.item?.bom_child_parts || childPartStockModal.item.bom_child_parts.length === 0) ? (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-slate-400">
+                        No BOM child parts configured for this SKU yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    childPartStockModal.item.bom_child_parts.map((bp, bIdx) => {
+                      const isSufficient = (bp.current_stock || 0) >= (bp.quantity_per_unit || 1);
+                      return (
+                        <tr key={bp.rm_id || bIdx} className="hover:bg-slate-50/70">
+                          <td className="p-2.5 text-center font-mono text-slate-400">{bIdx + 1}</td>
+                          <td className="p-2.5">
+                            <span className="font-mono text-[10px] text-slate-500 font-bold block">{bp.rm_code}</span>
+                            <span className="font-bold text-slate-900 text-xs">{bp.material_name}</span>
+                          </td>
+                          <td className="p-2.5 text-right font-mono font-bold text-slate-800">
+                            {bp.quantity_per_unit} {bp.unit_code}
+                          </td>
+                          <td className="p-2.5 text-right font-mono font-bold">
+                            <span className={isSufficient ? 'text-emerald-700' : 'text-rose-700'}>
+                              {bp.current_stock || 0} {bp.unit_code}
+                            </span>
+                          </td>
+                          <td className="p-2.5">
+                            {bp.variants && bp.variants.length > 0 ? (
+                              <div className="flex items-center gap-1 flex-wrap">
+                                {bp.variants.map((v) => (
+                                  <span key={v.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 text-[10px] font-bold border border-purple-200">
+                                    <span>{v.brand_name}:</span>
+                                    <span className="font-mono">{v.current_stock || 0}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 text-[10px] italic">Universal stock only</span>
+                            )}
+                          </td>
+                          <td className="p-2.5 text-center">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                              isSufficient ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                            }`}>
+                              {isSufficient ? 'In Stock' : 'Low Stock'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            /* Child Part (RM): Brand Variants */
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-100 text-[11px] font-bold text-slate-700 border-b border-slate-200">
+                  <tr>
+                    <th className="p-2.5 text-center w-10">#</th>
+                    <th className="p-2.5">Brand</th>
+                    <th className="p-2.5">Variant Code & Name</th>
+                    <th className="p-2.5 text-right">Standard Rate (₹)</th>
+                    <th className="p-2.5 text-right">Live Stock</th>
+                    <th className="p-2.5">Mapped Customer / Party</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {/* Generic Standard Row */}
+                  <tr className="bg-slate-50/50 hover:bg-slate-50">
+                    <td className="p-2.5 text-center font-mono text-slate-400">-</td>
+                    <td className="p-2.5">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-700">Generic</span>
+                    </td>
+                    <td className="p-2.5">
+                      <span className="font-bold text-slate-800">Standard / Universal</span>
+                      <span className="block text-[10px] text-slate-400 font-mono">{childPartStockModal.item?.item_code}</span>
+                    </td>
+                    <td className="p-2.5 text-right font-mono font-bold text-slate-800">
+                      ₹{parseFloat(childPartStockModal.item?.default_rate || 0).toFixed(2)}
+                    </td>
+                    <td className="p-2.5 text-right font-mono font-bold text-slate-800">
+                      {childPartStockModal.item?.current_stock || 0} {childPartStockModal.item?.unit_code || 'PCS'}
+                    </td>
+                    <td className="p-2.5 text-slate-400 italic text-[11px]">All Parties / General</td>
+                  </tr>
+
+                  {/* Configured Brand Variants */}
+                  {(!childPartStockModal.item?.variants || childPartStockModal.item.variants.length === 0) ? (
+                    <tr>
+                      <td colSpan={6} className="p-6 text-center text-slate-400">
+                        No brand variants configured for this child part. (Standard generic only).
+                      </td>
+                    </tr>
+                  ) : (
+                    childPartStockModal.item.variants.map((v, vIdx) => (
+                      <tr key={v.id || vIdx} className="hover:bg-slate-50/70">
+                        <td className="p-2.5 text-center font-mono text-slate-400">{vIdx + 1}</td>
+                        <td className="p-2.5">
+                          <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-purple-600 text-white shadow-2xs">
+                            {v.brand_name}
+                          </span>
+                        </td>
+                        <td className="p-2.5">
+                          <span className="font-bold text-slate-900">{v.sub_part_name}</span>
+                          <span className="block font-mono text-[10px] text-slate-500">{v.sub_part_code}</span>
+                        </td>
+                        <td className="p-2.5 text-right font-mono font-bold text-slate-800">
+                          ₹{parseFloat(v.standard_rate || 0).toFixed(2)}
+                        </td>
+                        <td className="p-2.5 text-right font-mono font-extrabold text-purple-700">
+                          {v.current_stock || 0} {childPartStockModal.item?.unit_code || 'PCS'}
+                        </td>
+                        <td className="p-2.5">
+                          {v.mapped_customer_name ? (
+                            <span className="text-indigo-700 font-bold text-xs">{v.mapped_customer_name}</span>
+                          ) : (
+                            <span className="text-slate-400 italic text-[11px]">General</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end pt-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setChildPartStockModal({ isOpen: false, row: null, item: null })}
+              className="px-4 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* MODAL 3: GODOWN-WISE STOCK CHECK MODAL */}
+      <Modal
+        isOpen={godownStockModal.isOpen}
+        onClose={() => setGodownStockModal({ isOpen: false, row: null, item: null })}
+        title={
+          <div className="flex items-center gap-2">
+            <Building2 className="w-5 h-5 text-amber-600" />
+            <span>Godown / Warehouse Stock Breakdown — {godownStockModal.item?.item_name || 'Item'}</span>
+          </div>
+        }
+        maxWidth="max-w-2xl"
+      >
+        <div className="space-y-4">
+          {/* Header Summary */}
+          <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-4 flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono font-bold bg-white px-2 py-0.5 rounded border border-amber-300 text-amber-800">
+                  {godownStockModal.item?.item_code || '-'}
+                </span>
+                <span className="text-xs font-extrabold text-slate-900">
+                  {godownStockModal.item?.item_name || '-'}
+                </span>
+              </div>
+              <p className="text-xs text-amber-800 mt-1">
+                Live physical inventory, reserved production allocations, and net available stock per godown.
+              </p>
+            </div>
+            <div className="text-right">
+              <span className="text-sm font-black font-mono text-amber-900">
+                {godownStockModal.item?.current_stock || 0} {godownStockModal.item?.unit_code || 'PCS'}
+              </span>
+              <span className="block text-[10px] text-amber-600">Total Live Stock</span>
+            </div>
+          </div>
+
+          {/* Warehouses Table */}
+          <div className="border border-slate-200 rounded-xl overflow-hidden">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-100 text-[11px] font-bold text-slate-700 border-b border-slate-200">
+                <tr>
+                  <th className="p-2.5 text-center w-10">#</th>
+                  <th className="p-2.5">Godown / Warehouse</th>
+                  <th className="p-2.5 text-right">Physical Qty</th>
+                  <th className="p-2.5 text-right">Reserved Qty</th>
+                  <th className="p-2.5 text-right">Available Qty</th>
+                  <th className="p-2.5 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {warehouses.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-6 text-center text-slate-400">
+                      No warehouses configured.
+                    </td>
+                  </tr>
+                ) : (
+                  warehouses.map((wh, wIdx) => {
+                    const stkInfo = godownStockModal.item?.godown_stocks?.find(s => s.warehouse_id === wh.id);
+                    const qty = stkInfo ? (stkInfo.quantity || 0) : 0;
+                    const resQty = stkInfo ? (stkInfo.reserved_quantity || 0) : 0;
+                    const availQty = stkInfo ? (stkInfo.available_quantity || 0) : 0;
+                    const hasStock = qty > 0;
+
+                    return (
+                      <tr key={wh.id} className="hover:bg-slate-50/70">
+                        <td className="p-2.5 text-center font-mono text-slate-400">{wIdx + 1}</td>
+                        <td className="p-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                              {wh.warehouse_code}
+                            </span>
+                            <span className="font-bold text-slate-900">{wh.warehouse_name}</span>
+                          </div>
+                          {wh.location && <span className="text-[10px] text-slate-400 block mt-0.5">{wh.location}</span>}
+                        </td>
+                        <td className="p-2.5 text-right font-mono font-bold text-slate-800">
+                          {qty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} {godownStockModal.item?.unit_code || 'PCS'}
+                        </td>
+                        <td className="p-2.5 text-right font-mono text-slate-500">
+                          {resQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} {godownStockModal.item?.unit_code || 'PCS'}
+                        </td>
+                        <td className="p-2.5 text-right font-mono font-bold text-emerald-700">
+                          {availQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} {godownStockModal.item?.unit_code || 'PCS'}
+                        </td>
+                        <td className="p-2.5 text-center">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                            hasStock ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {hasStock ? 'In Stock' : 'Empty'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-end pt-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setGodownStockModal({ isOpen: false, row: null, item: null })}
+              className="px-4 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* FLOATING HOVER STOCK CARD */}
+      {hoverStock && (
+        <div
+          className="fixed z-50 pointer-events-none w-80 bg-slate-900/95 backdrop-blur-md text-white p-3.5 rounded-2xl shadow-2xl border border-slate-700 text-xs animate-in fade-in duration-150"
+          style={{ top: hoverStock.y, left: hoverStock.x }}
+        >
+          <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-700">
+            <div>
+              <span className="text-[10px] font-mono text-emerald-400 font-bold block">{hoverStock.item?.item_code}</span>
+              <p className="font-bold text-slate-100 truncate max-w-[180px]">{hoverStock.item?.item_name}</p>
+            </div>
+            <div className="text-right">
+              <span className="text-xs font-black text-emerald-400 font-mono">
+                {hoverStock.item?.current_stock || 0} {hoverStock.item?.unit_code}
+              </span>
+              <span className="text-[9px] text-slate-400 block">Total Live Stock</span>
+            </div>
+          </div>
+
+          {/* If RM: Show brand variants & Godowns */}
+          {hoverStock.row?.material_type === 'RM' ? (
+            <div className="space-y-2">
+              {hoverStock.item?.variants && hoverStock.item.variants.length > 0 ? (
+                <div>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-purple-300 mb-1 flex items-center gap-1">
+                    <Boxes className="w-3 h-3" /> Brand Varieties Breakdown
+                  </p>
+                  <div className="space-y-1 bg-slate-800/80 rounded-lg p-2 border border-slate-700">
+                    {hoverStock.item.variants.map((v) => (
+                      <div key={v.id} className="flex items-center justify-between text-[11px]">
+                        <span className="text-slate-300 flex items-center gap-1">
+                          <span className="px-1.5 py-0.2 rounded bg-purple-900/80 text-purple-200 text-[9px] font-bold">
+                            {v.brand_name}
+                          </span>
+                          <span className="truncate max-w-[120px]">{v.sub_part_name}</span>
+                        </span>
+                        <span className="font-mono font-bold text-white">
+                          {v.current_stock || 0} {hoverStock.item?.unit_code}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-[10px] text-slate-400 italic">No brand varieties configured (Generic stock)</p>
+              )}
+
+              {/* Godown breakdown */}
+              {hoverStock.item?.godown_stocks && hoverStock.item.godown_stocks.length > 0 && (
+                <div>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-amber-300 mb-1 flex items-center gap-1">
+                    <Building2 className="w-3 h-3" /> Godown / Warehouse Stock
+                  </p>
+                  <div className="space-y-1 bg-slate-800/80 rounded-lg p-2 border border-slate-700">
+                    {hoverStock.item.godown_stocks.map((gs) => (
+                      <div key={gs.warehouse_id} className="flex items-center justify-between text-[11px]">
+                        <span className="text-slate-300">{gs.warehouse_name || gs.warehouse_code}</span>
+                        <span className="font-mono font-bold text-amber-300">
+                          {gs.quantity || 0} {hoverStock.item?.unit_code}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* If FG: Show Godowns & BOM Child Parts */
+            <div className="space-y-2">
+              {hoverStock.item?.godown_stocks && hoverStock.item.godown_stocks.length > 0 && (
+                <div>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-amber-300 mb-1 flex items-center gap-1">
+                    <Building2 className="w-3 h-3" /> Godown / Warehouse Stock
+                  </p>
+                  <div className="space-y-1 bg-slate-800/80 rounded-lg p-2 border border-slate-700">
+                    {hoverStock.item.godown_stocks.map((gs) => (
+                      <div key={gs.warehouse_id} className="flex items-center justify-between text-[11px]">
+                        <span className="text-slate-300">{gs.warehouse_name || gs.warehouse_code}</span>
+                        <span className="font-mono font-bold text-amber-300">
+                          {gs.quantity || 0} {hoverStock.item?.unit_code}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {hoverStock.item?.bom_child_parts && hoverStock.item.bom_child_parts.length > 0 ? (
+                <div>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-blue-300 mb-1 flex items-center gap-1">
+                    <Layers className="w-3 h-3" /> BOM Child Parts ({hoverStock.item.bom_child_parts.length})
+                  </p>
+                  <div className="space-y-1 bg-slate-800/80 rounded-lg p-2 border border-slate-700 max-h-32 overflow-y-auto">
+                    {hoverStock.item.bom_child_parts.map((bp) => (
+                      <div key={bp.rm_id} className="flex items-center justify-between text-[11px]">
+                        <span className="text-slate-300 truncate max-w-[140px]" title={bp.material_name}>
+                          {bp.material_name}
+                        </span>
+                        <span className="font-mono font-bold text-blue-300">
+                          {bp.current_stock || 0} {bp.unit_code}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-[10px] text-slate-400 italic">No BOM recipe items configured</p>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
