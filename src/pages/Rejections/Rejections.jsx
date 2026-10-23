@@ -11,34 +11,14 @@ export function Rejections() {
   const [dateRange, setDateRange] = useState({ from: '', to: '', preset: 'ALL_TIME' });
   const [scrapStock, setScrapStock] = useState([]);
   const [reasons, setReasons] = useState([]);
-  const [reworkQueue, setReworkQueue] = useState([
-    {
-      id: 1,
-      batch_no: '520',
-      item_name: 'BIB COCK SELTOS 1/2"',
-      detected_stage: 'Machining',
-      defect_reason: 'Minor tool burr / rough threading',
-      rework_stage: 'Machining',
-      qty: 4,
-      avg_weight: 0.35,
-      date_logged: new Date().toLocaleDateString('en-GB'),
-      status: 'IN_REWORK',
-      operator: 'Machine Shop #2'
-    },
-    {
-      id: 2,
-      batch_no: '521',
-      item_name: 'PILLAR COCK BRITNEY',
-      detected_stage: 'CP Plating',
-      defect_reason: 'Plating haze / buffing patch',
-      rework_stage: 'LP / Buffing',
-      qty: 6,
-      avg_weight: 0.42,
-      date_logged: new Date().toLocaleDateString('en-GB'),
-      status: 'IN_REWORK',
-      operator: 'CP Line A'
+  const [reworkQueue, setReworkQueue] = useState(() => {
+    try {
+      const saved = localStorage.getItem('bharat_rework_queue');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
     }
-  ]);
+  });
   const [processes, setProcesses] = useState([]);
   const [selectedStageFilter, setSelectedStageFilter] = useState('ALL');
   const [loading, setLoading] = useState(true);
@@ -56,38 +36,6 @@ export function Rejections() {
       if (bundleRes?.data?.rejection_reasons) setReasons(bundleRes.data.rejection_reasons);
       if (bundleRes?.data?.processes) {
         setProcesses(bundleRes.data.processes);
-        if (bundleRes.data.processes.length >= 2) {
-          const p1 = bundleRes.data.processes[1]?.process_name || 'Machining';
-          const p2 = bundleRes.data.processes[3]?.process_name || 'Polishing';
-          setReworkQueue((prev) => [
-            {
-              id: 1,
-              batch_no: '520',
-              item_name: 'BIB COCK SELTOS 1/2"',
-              detected_stage: p1,
-              defect_reason: 'Minor tool burr / rough threading',
-              rework_stage: p1,
-              qty: 4,
-              avg_weight: 0.35,
-              date_logged: new Date().toLocaleDateString('en-GB'),
-              status: 'IN_REWORK',
-              operator: 'Machine Shop #2'
-            },
-            {
-              id: 2,
-              batch_no: '521',
-              item_name: 'PILLAR COCK BRITNEY',
-              detected_stage: p2,
-              defect_reason: 'Surface haze / buffing patch',
-              rework_stage: p2,
-              qty: 6,
-              avg_weight: 0.42,
-              date_logged: new Date().toLocaleDateString('en-GB'),
-              status: 'IN_REWORK',
-              operator: 'Line A'
-            }
-          ]);
-        }
       }
     } catch (err) {
       error('Failed to load rejection & scrap records: ' + err.message);
@@ -102,9 +50,13 @@ export function Rejections() {
 
   // Handle Mark Rework Completed
   const handleCompleteRework = (item) => {
-    setReworkQueue((prev) =>
-      prev.map((r) => (r.id === item.id ? { ...r, status: 'FIXED_RETURNED' } : r))
-    );
+    setReworkQueue((prev) => {
+      const updated = prev.map((r) => (r.id === item.id ? { ...r, status: 'FIXED_RETURNED' } : r));
+      try {
+        localStorage.setItem('bharat_rework_queue', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
     success(`Rework completed for Batch #${item.batch_no} (${item.qty} PCS returned to production pipeline)`);
   };
 

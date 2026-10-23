@@ -31,6 +31,7 @@ function AppContent() {
   React.useEffect(() => {
     try {
       localStorage.removeItem('bharat_sku_tracking_batches');
+      localStorage.removeItem('bharat_rework_queue');
     } catch (e) {}
   }, []);
 

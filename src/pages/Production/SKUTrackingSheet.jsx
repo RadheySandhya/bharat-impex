@@ -644,6 +644,32 @@ export function SKUTrackingSheet() {
       success(`Forwarded ${goodQty} PCS to next stage! (${rejQty} PCS logged as ${dispText})`);
     }
 
+    // If logged as rework with qty > 0, record in the central Rework Management Hub queue
+    if (disposition === 'REWORK' && Number(rejQty) > 0) {
+      try {
+        const stored = localStorage.getItem('bharat_rework_queue');
+        const list = stored ? JSON.parse(stored) : [];
+        const stageObj = stages.find((s) => s.key === stageKey);
+        const reworkObj = stages.find((s) => s.key === reworkStage);
+        const newRework = {
+          id: Date.now(),
+          batch_no: String(targetRow?.batch_no || '').replace(/^#/, ''),
+          item_name: targetRow?.item_name || 'SKU Item',
+          detected_stage: stageObj?.full_name || stageKey,
+          defect_reason: rejReason || 'Stage Defect',
+          rework_stage: reworkObj?.full_name || reworkStage || stageObj?.full_name || stageKey,
+          qty: Number(rejQty),
+          avg_weight: Number(targetRow?.avg_weight || 0.35),
+          date_logged: new Date().toLocaleDateString('en-GB'),
+          status: 'IN_REWORK',
+          operator: operatorName || 'Supervisor'
+        };
+        localStorage.setItem('bharat_rework_queue', JSON.stringify([newRework, ...list]));
+      } catch (err) {
+        console.warn('Could not save rework record to localStorage:', err);
+      }
+    }
+
     setData((prev) => {
       const nextData = prev.map((item) => {
         if (item.id !== rowId) return item;
