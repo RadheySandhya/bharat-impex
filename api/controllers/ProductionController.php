@@ -564,6 +564,7 @@ class ProductionController {
 
         // Check if release is already deducted
         $isAlreadyDeducted = false;
+        $savedKittingDetails = null;
         if ($batchNo) {
             $chk = $db->prepare("
                 SELECT COUNT(*) FROM stock_ledger 
@@ -573,10 +574,16 @@ class ProductionController {
             $chk->execute([$batchNo, $batchNo]);
             $isAlreadyDeducted = ((int)$chk->fetchColumn()) > 0;
 
-            if (!$isAlreadyDeducted) {
-                $prChk = $db->prepare("SELECT rm_deducted FROM planning_releases WHERE release_number = ?");
-                $prChk->execute([$batchNo]);
-                $isAlreadyDeducted = (bool)$prChk->fetchColumn();
+            $prChk = $db->prepare("SELECT rm_deducted, kitting_details FROM planning_releases WHERE release_number = ?");
+            $prChk->execute([$batchNo]);
+            $prRow = $prChk->fetch();
+            if ($prRow) {
+                if (!empty($prRow['rm_deducted'])) {
+                    $isAlreadyDeducted = true;
+                }
+                if (!empty($prRow['kitting_details'])) {
+                    $savedKittingDetails = json_decode($prRow['kitting_details'], true);
+                }
             }
         }
 
@@ -679,6 +686,8 @@ class ProductionController {
             'has_shortage'        => $hasShortage,
             'total_cost'          => $totalCost,
             'is_already_deducted' => $isAlreadyDeducted,
+            'already_deducted'    => $isAlreadyDeducted,
+            'kitting_details'     => $savedKittingDetails,
             'items'               => $items
         ]);
     }
@@ -825,6 +834,26 @@ class ProductionController {
                 $unitId = (int)($rmData['unit_id'] ?: 1);
                 $rate = (float)($rmData['standard_rate'] ?: 0.0);
 
+                $subChildPartId = !empty($item['sub_child_part_id']) ? (int)$item['sub_child_part_id'] : null;
+                $subPartName    = !empty($item['sub_part_name']) ? trim($item['sub_part_name']) : null;
+                $subPartBrand   = !empty($item['sub_part_brand']) ? trim($item['sub_part_brand']) : null;
+
+                if ($subChildPartId && (!$subPartName || !$subPartBrand)) {
+                    try {
+                        $scpStmt = $db->prepare("SELECT sub_part_name, brand_name, sub_part_code FROM sub_child_parts WHERE id = ?");
+                        $scpStmt->execute([$subChildPartId]);
+                        $scpRow = $scpStmt->fetch(PDO::FETCH_ASSOC);
+                        if ($scpRow) {
+                            $subPartName = $scpRow['sub_part_name'];
+                            $subPartBrand = $scpRow['brand_name'];
+                        }
+                    } catch (Exception $e) {}
+                }
+
+                $varNote = ($subPartBrand || $subPartName)
+                    ? " [Variant: " . trim(($subPartBrand ? "[$subPartBrand] " : "") . $subPartName) . "]"
+                    : "";
+
                 // Decrease stock
                 $decRes = InventoryService::decreaseStock(
                     'RM',
@@ -839,18 +868,21 @@ class ProductionController {
                     $batchNo,
                     $batchNo,
                     date('Y-m-d'),
-                    "Raw Material Consumption (Full Kitting) for Batch #{$batchNo} - {$fg['product_name']} (Qty: {$quantity}). " . ($remarks ?: ''),
+                    "Raw Material Consumption (Full Kitting) for Batch #{$batchNo} - {$fg['product_name']} (Qty: {$quantity}){$varNote}. " . ($remarks ?: ''),
                     $user['id'] ?? null,
                     $allowOverride
                 );
 
                 $deductionResults[] = [
-                    'rm_id'         => $rmId,
-                    'rm_code'       => $rmData['rm_code'],
-                    'material_name' => $rmData['material_name'],
-                    'qty_deducted'  => $reqQty,
-                    'unit_code'     => $item['unit_code'] ?? 'PCS',
-                    'new_stock'     => $decRes['new_qty']
+                    'rm_id'             => $rmId,
+                    'rm_code'           => $rmData['rm_code'],
+                    'material_name'     => $rmData['material_name'],
+                    'sub_child_part_id' => $subChildPartId,
+                    'sub_part_name'     => $subPartName,
+                    'sub_part_brand'    => $subPartBrand,
+                    'qty_deducted'      => $reqQty,
+                    'unit_code'         => $item['unit_code'] ?? 'PCS',
+                    'new_stock'         => $decRes['new_qty']
                 ];
             }
 

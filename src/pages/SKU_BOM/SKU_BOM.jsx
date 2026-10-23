@@ -468,24 +468,16 @@ export function SKU_BOM() {
                   </div>
                 </th>
 
-                {/* Col E: Pastel Orange (#fed7aa) - Sub-Child Part Brand Variety */}
-                <th className="p-2.5 bg-[#fed7aa] text-[#7c2d12] min-w-[220px]">
-                  <div className="flex items-center justify-between">
-                    <span>Variant / Sub-Child Part</span>
-                    <span className="text-[10px] opacity-70 font-mono">Col E</span>
-                  </div>
-                </th>
-
-                {/* Col F & G: Pastel Yellow (#fef9c3) */}
+                {/* Col E & F: Pastel Yellow (#fef9c3) */}
                 <th className="p-2.5 bg-[#fef9c3] text-[#713f12] min-w-[110px]">
                   <div className="flex items-center justify-between">
                     <span>Unit</span>
-                    <span className="text-[10px] opacity-70 font-mono">Col F</span>
+                    <span className="text-[10px] opacity-70 font-mono">Col E</span>
                   </div>
                 </th>
                 <th className="p-2.5 bg-[#fef9c3] text-[#713f12] min-w-[130px] text-right">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] opacity-70 font-mono">Col G</span>
+                    <span className="text-[10px] opacity-70 font-mono">Col F</span>
                     <span>Quantity</span>
                   </div>
                 </th>
@@ -501,7 +493,7 @@ export function SKU_BOM() {
             <tbody className="divide-y divide-slate-200">
               {displayedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="p-12 text-center text-slate-400">
+                  <td colSpan={8} className="p-12 text-center text-slate-400">
                     <Layers className="w-8 h-8 mx-auto text-slate-300 mb-2" />
                     <p className="font-bold text-slate-700 text-xs">No BOM constituent rows found</p>
                     <p className="text-[11px] text-slate-400 mt-1">
@@ -578,31 +570,7 @@ export function SKU_BOM() {
                         )}
                       </td>
 
-                      {/* Col E: Variant / Sub-Child Part (Dropdown) */}
-                      <td className="p-1.5 bg-[#fed7aa]/20">
-                        {(() => {
-                          const variants = subChildParts.filter((s) => String(s.parent_rm_id) === String(row.rm_id));
-                          if (!row.rm_id) {
-                            return <span className="text-slate-400 italic text-[11px] px-2">—</span>;
-                          }
-                          return (
-                            <select
-                              value={row.sub_child_part_id || ''}
-                              onChange={(e) => handleSubChildChange(originalIdx, e.target.value)}
-                              className="w-full px-2 py-1 rounded-lg border border-slate-300 bg-white text-slate-800 font-semibold text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
-                            >
-                              <option value="">-- Standard / Universal --</option>
-                              {variants.map((v) => (
-                                <option key={v.id} value={v.id}>
-                                  [{v.brand_name}] {v.sub_part_name}
-                                </option>
-                              ))}
-                            </select>
-                          );
-                        })()}
-                      </td>
-
-                      {/* Col F: Unit (Dropdown) */}
+                      {/* Col E: Unit (Dropdown) */}
                       <td className="p-1.5 bg-[#fef9c3]/15">
                         <select
                           value={row.unit_id || 1}
@@ -617,7 +585,7 @@ export function SKU_BOM() {
                         </select>
                       </td>
 
-                      {/* Col G: Quantity (Number Input) */}
+                      {/* Col F: Quantity (Number Input) */}
                       <td className="p-1.5 bg-[#fef9c3]/25 text-right">
                         <input
                           type="number"

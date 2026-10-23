@@ -17,12 +17,21 @@ export function FullKittingModal({
   const [allowNegative, setAllowNegative] = useState(true);
   const [remarks, setRemarks] = useState('');
   const [customItems, setCustomItems] = useState([]);
+  const [subChildParts, setSubChildParts] = useState([]);
 
   const batchNo = batch?.batch_no || batch?.release_number || '';
   const fgId = batch?.fg_id || 0;
   const catNo = batch?.cat_no || batch?.fg_code || '';
   const itemName = batch?.item_name || batch?.product_name || 'Finished Product';
   const qty = Number(batch?.quantity || batch?.release_quantity || batch?.qty_recd_casting || batch?.planned_quantity || 100);
+
+  useEffect(() => {
+    if (isOpen) {
+      api.subChildParts.getAll()
+        .then(res => setSubChildParts(res.data?.sub_child_parts || []))
+        .catch(err => console.warn('Failed to load sub-child parts in FullKittingModal:', err));
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || (!batchNo && !fgId && !catNo)) {
@@ -41,7 +50,22 @@ export function FullKittingModal({
       .then((res) => {
         if (res?.data) {
           setKittingData(res.data);
-          setCustomItems(res.data.items ? JSON.parse(JSON.stringify(res.data.items)) : []);
+          let itemsToSet = res.data.items ? JSON.parse(JSON.stringify(res.data.items)) : [];
+          if (res.data?.kitting_details && Array.isArray(res.data.kitting_details)) {
+            itemsToSet = itemsToSet.map(it => {
+              const saved = res.data.kitting_details.find(d => Number(d.rm_id) === Number(it.rm_id));
+              if (saved) {
+                return {
+                  ...it,
+                  sub_child_part_id: saved.sub_child_part_id ?? it.sub_child_part_id,
+                  sub_part_name: saved.sub_part_name ?? it.sub_part_name,
+                  sub_part_brand: saved.sub_part_brand ?? it.sub_part_brand,
+                };
+              }
+              return it;
+            });
+          }
+          setCustomItems(itemsToSet);
         }
       })
       .catch((err) => {
@@ -55,6 +79,18 @@ export function FullKittingModal({
   const handleQtyChange = (index, newQty) => {
     const next = [...customItems];
     next[index].total_required_qty = Number(newQty) || 0;
+    setCustomItems(next);
+  };
+
+  const handleVariantChange = (index, subChildPartId) => {
+    const next = [...customItems];
+    const scp = subChildParts.find(s => String(s.id) === String(subChildPartId));
+    next[index] = {
+      ...next[index],
+      sub_child_part_id: subChildPartId ? Number(subChildPartId) : null,
+      sub_part_name: scp ? scp.sub_part_name : null,
+      sub_part_brand: scp ? scp.brand_name : null,
+    };
     setCustomItems(next);
   };
 
@@ -106,6 +142,7 @@ export function FullKittingModal({
       isOpen={isOpen}
       onClose={onClose}
       title={`Full Kitting (Upfront RM Deduction) — Batch #${batchNo || '—'}`}
+      maxWidth="max-w-4xl"
       footer={
         <div className="flex items-center justify-between w-full">
           <button
@@ -199,6 +236,7 @@ export function FullKittingModal({
                   <tr className="bg-slate-100/90 border-b border-slate-200 text-[10px] font-black text-slate-600 uppercase tracking-wider">
                     <th className="py-2.5 px-3">RM Code</th>
                     <th className="py-2.5 px-3">Material Name</th>
+                    <th className="py-2.5 px-3 min-w-[200px]">Child Part Variety / Brand</th>
                     <th className="py-2.5 px-3 text-right">Required Qty</th>
                     <th className="py-2.5 px-3 text-right">Available in Store</th>
                     <th className="py-2.5 px-3 text-center whitespace-nowrap min-w-[130px]">Status</th>
@@ -210,6 +248,7 @@ export function FullKittingModal({
                     const availStock = Number(item.available_stock || 0);
                     const isSufficient = availStock >= reqQty;
                     const shortageDeficit = reqQty - availStock;
+                    const matchingVariants = subChildParts.filter(s => Number(s.parent_rm_id) === Number(item.rm_id));
 
                     return (
                       <tr 
@@ -221,18 +260,38 @@ export function FullKittingModal({
                         </td>
                         <td className="py-2.5 px-3">
                           <span className="font-semibold text-slate-900">{item.material_name}</span>
-                          {item.sub_part_name && (
-                            <div className="mt-0.5">
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                                <span>Variant:</span>
-                                <strong>[{item.sub_part_brand || 'OEM'}]</strong>
-                                <span>{item.sub_part_name}</span>
-                              </span>
-                            </div>
-                          )}
                           {item.quantity_per_unit && (
                             <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
                               ({Number(item.quantity_per_unit).toFixed(3)} {item.unit_code}/unit)
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          {kittingData?.already_deducted ? (
+                            item.sub_part_name ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-50 text-amber-900 border border-amber-200">
+                                <strong>[{item.sub_part_brand || 'Brand'}]</strong>
+                                <span>{item.sub_part_name}</span>
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 font-medium italic text-[11px]">Standard / Universal</span>
+                            )
+                          ) : matchingVariants.length > 0 ? (
+                            <select
+                              value={item.sub_child_part_id || ''}
+                              onChange={(e) => handleVariantChange(idx, e.target.value)}
+                              className="w-full bg-white border border-blue-300 text-blue-900 rounded-lg px-2 py-1 text-xs font-bold focus:ring-2 focus:ring-blue-500 shadow-2xs cursor-pointer"
+                            >
+                              <option value="">-- Standard / Universal --</option>
+                              {matchingVariants.map(v => (
+                                <option key={v.id} value={v.id}>
+                                  [{v.brand_name || 'Brand'}] {v.sub_part_name}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-slate-400 font-medium italic text-[11px]">
+                              Standard / Universal
                             </span>
                           )}
                         </td>

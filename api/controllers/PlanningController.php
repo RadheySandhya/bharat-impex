@@ -382,6 +382,26 @@ class PlanningController {
                     $unitId = (int)($rmData['unit_id'] ?: 1);
                     $rate   = (float)($rmData['standard_rate'] ?: 0.0);
 
+                    $subChildPartId = !empty($item['sub_child_part_id']) ? (int)$item['sub_child_part_id'] : null;
+                    $subPartName    = !empty($item['sub_part_name']) ? trim($item['sub_part_name']) : null;
+                    $subPartBrand   = !empty($item['sub_part_brand']) ? trim($item['sub_part_brand']) : null;
+
+                    if ($subChildPartId && (!$subPartName || !$subPartBrand)) {
+                        try {
+                            $scpStmt = $db->prepare("SELECT sub_part_name, brand_name, sub_part_code FROM sub_child_parts WHERE id = ?");
+                            $scpStmt->execute([$subChildPartId]);
+                            $scpRow = $scpStmt->fetch(PDO::FETCH_ASSOC);
+                            if ($scpRow) {
+                                $subPartName = $scpRow['sub_part_name'];
+                                $subPartBrand = $scpRow['brand_name'];
+                            }
+                        } catch (Exception $e) {}
+                    }
+
+                    $varNote = ($subPartBrand || $subPartName)
+                        ? " [Variant: " . trim(($subPartBrand ? "[$subPartBrand] " : "") . $subPartName) . "]"
+                        : "";
+
                     $decRes = InventoryService::decreaseStock(
                         'RM',
                         $rmId,
@@ -395,18 +415,21 @@ class PlanningController {
                         $releaseNum,
                         $releaseNum,
                         date('Y-m-d'),
-                        "Raw Material Consumption (Full Kitting on Release) for Batch #{$releaseNum} - {$fg['product_name']} (Qty: {$releaseQty}). " . ($remarks ?: ''),
+                        "Raw Material Consumption (Full Kitting on Release) for Batch #{$releaseNum} - {$fg['product_name']} (Qty: {$releaseQty}){$varNote}. " . ($remarks ?: ''),
                         $userId,
                         $allowOverride
                     );
 
                     $deductionResults[] = [
-                        'rm_id'         => $rmId,
-                        'rm_code'       => $rmData['rm_code'],
-                        'material_name' => $rmData['material_name'],
-                        'qty_deducted'  => $reqQty,
-                        'unit_code'     => $item['unit_code'] ?? 'PCS',
-                        'new_stock'     => $decRes['new_qty']
+                        'rm_id'             => $rmId,
+                        'rm_code'           => $rmData['rm_code'],
+                        'material_name'     => $rmData['material_name'],
+                        'sub_child_part_id' => $subChildPartId,
+                        'sub_part_name'     => $subPartName,
+                        'sub_part_brand'    => $subPartBrand,
+                        'qty_deducted'      => $reqQty,
+                        'unit_code'         => $item['unit_code'] ?? 'PCS',
+                        'new_stock'         => $decRes['new_qty']
                     ];
                 }
 

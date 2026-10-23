@@ -326,8 +326,18 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased }) {
   const [kittingData, setKittingData] = useState(null);
   const [autoKitting, setAutoKitting] = useState(true);
   const [allowOverride, setAllowOverride] = useState(true);
+  const [subChildParts, setSubChildParts] = useState([]);
+  const [selectedVariants, setSelectedVariants] = useState({});
 
   const pending = plan ? Math.max(0, Number(plan.planned_quantity || 0) - Number(plan.released_quantity || 0)) : 0;
+
+  useEffect(() => {
+    if (isOpen) {
+      api.subChildParts.getAll()
+        .then(res => setSubChildParts(res.data?.sub_child_parts || []))
+        .catch(err => console.warn('Could not load sub-child parts in ReleaseModal:', err));
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen && plan) {
@@ -336,6 +346,7 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased }) {
       setRemarks('');
       setAllowOverride(true);
       setAutoKitting(true);
+      setSelectedVariants({});
       fetchKittingPreview(initialQty);
     } else {
       setKittingData(null);
@@ -392,10 +403,21 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased }) {
 
     setLoading(true);
     try {
+      const preparedKittingItems = (kittingData?.items || []).map(item => {
+        const vId = selectedVariants[item.rm_id];
+        const variantObj = vId ? subChildParts.find(s => String(s.id) === String(vId)) : null;
+        return {
+          ...item,
+          sub_child_part_id: vId ? Number(vId) : null,
+          sub_part_name: variantObj ? variantObj.sub_part_name : null,
+          sub_part_brand: variantObj ? variantObj.brand_name : null,
+        };
+      });
+
       const res = await api.planning.release(plan.id, q, remarks, {
         auto_kitting: autoKitting,
         allow_shortage_override: allowOverride,
-        kitting_items: kittingData?.items || []
+        kitting_items: preparedKittingItems
       });
 
       const relNum = res.data?.release?.release_number || 'Batch';
@@ -415,7 +437,7 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased }) {
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Release Quantity & Material Kitting to SKU Tracking" maxWidth="max-w-2xl"
+    <Modal isOpen={isOpen} onClose={onClose} title="Release Quantity & Material Kitting to SKU Tracking" maxWidth="max-w-4xl"
       footer={
         <div className="flex items-center justify-between w-full">
           <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700 cursor-pointer">
@@ -522,6 +544,7 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased }) {
                   <tr>
                     <th className="p-2">Part Code</th>
                     <th className="p-2">Child Part Name</th>
+                    <th className="p-2 min-w-[200px]">Child Part Variety / Brand</th>
                     <th className="p-2 text-right">Required Qty</th>
                     <th className="p-2 text-right">In Store (WH-MAIN)</th>
                     <th className="p-2 text-center whitespace-nowrap min-w-[130px]">Status</th>
@@ -533,13 +556,39 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased }) {
                     const availStock = Number(item.available_stock ?? item.current_stock ?? 0);
                     const isShortage = availStock < reqQty;
                     const deficit = reqQty - availStock;
+                    const matchingVariants = subChildParts.filter(s => Number(s.parent_rm_id) === Number(item.rm_id));
+                    const currentVarId = selectedVariants[item.rm_id] ?? '';
+
                     return (
                       <tr key={item.rm_id || idx} className={isShortage ? 'bg-red-50/40 hover:bg-red-50/60' : 'hover:bg-slate-50/50'}>
                         <td className="p-2 font-mono font-bold text-slate-700">{item.rm_code}</td>
                         <td className="p-2 text-slate-800">
-                          <p className="font-medium">{item.material_name}</p>
+                          <p className="font-semibold text-slate-900">{item.material_name}</p>
                           {item.quantity_per_unit && (
                             <p className="text-[9px] text-slate-400">({item.quantity_per_unit} {item.unit_code}/unit)</p>
+                          )}
+                        </td>
+                        <td className="p-2">
+                          {matchingVariants.length > 0 ? (
+                            <select
+                              value={currentVarId}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setSelectedVariants(prev => ({ ...prev, [item.rm_id]: val }));
+                              }}
+                              className="w-full bg-white border border-blue-300 text-blue-900 rounded-lg px-2 py-1 text-[11px] font-bold focus:ring-2 focus:ring-blue-500 shadow-2xs cursor-pointer"
+                            >
+                              <option value="">-- Standard / Universal --</option>
+                              {matchingVariants.map(v => (
+                                <option key={v.id} value={v.id}>
+                                  [{v.brand_name || 'Brand'}] {v.sub_part_name}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-slate-400 font-medium italic text-[11px]">
+                              Standard / Universal
+                            </span>
                           )}
                         </td>
                         <td className="p-2 font-mono font-black text-right text-slate-900">
