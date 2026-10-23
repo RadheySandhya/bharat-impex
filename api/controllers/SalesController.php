@@ -62,7 +62,7 @@ class SalesController {
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
 
         $fgId = (int)($input['fg_id'] ?? 0);
-        $warehouseId = (int)($input['warehouse_id'] ?? 3);
+        $warehouseId = InventoryService::getValidWarehouseId((int)($input['warehouse_id'] ?? 0));
         $quantity = (float)($input['quantity'] ?? 0);
         $rate = (float)($input['rate'] ?? 0);
         $invoiceNumber = trim($input['invoice_number'] ?? 'MANUAL-SALE-' . date('Ymd'));

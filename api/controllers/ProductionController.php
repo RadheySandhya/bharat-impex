@@ -163,7 +163,7 @@ class ProductionController {
         $fgId = (int)($input['fg_id'] ?? 0);
         $bomId = (int)($input['bom_id'] ?? 0);
         $qty = (float)($input['planned_quantity'] ?? 0);
-        $warehouseId = (int)($input['warehouse_id'] ?? 1);
+        $warehouseId = InventoryService::getValidWarehouseId((int)($input['warehouse_id'] ?? 0));
         $startDate = $input['planned_start_date'] ?? date('Y-m-d');
         $endDate = $input['planned_end_date'] ?? null;
         $priority = $input['priority'] ?? 'NORMAL';

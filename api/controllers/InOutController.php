@@ -332,7 +332,7 @@ class InOutController {
 
                         $effectiveRate = $rate > 0 ? $rate : (float)$rm['standard_rate'];
                         $amount = round($quantity * $effectiveRate, 2);
-                        $warehouseId = (int)($row['warehouse_id'] ?? 1);
+                        $warehouseId = InventoryService::getValidWarehouseId((int)($row['warehouse_id'] ?? 0));
 
                         // Record in purchase_inputs table
                         $db->prepare("
@@ -372,7 +372,7 @@ class InOutController {
                         if (!$fg) throw new RuntimeException("Finished Good [ID: {$itemId}] not found.");
 
                         $effectiveRate = $rate > 0 ? $rate : (float)$fg['selling_price'];
-                        $warehouseId = (int)($row['warehouse_id'] ?? 3);
+                        $warehouseId = InventoryService::getValidWarehouseId((int)($row['warehouse_id'] ?? 0));
 
                         InventoryService::increaseStock(
                             'FG',
@@ -403,7 +403,7 @@ class InOutController {
 
                         $effectiveRate = $rate > 0 ? $rate : (float)$fg['selling_price'];
                         $amount = round($quantity * $effectiveRate, 2);
-                        $warehouseId = (int)($row['warehouse_id'] ?? 3);
+                        $warehouseId = InventoryService::getValidWarehouseId((int)($row['warehouse_id'] ?? 0));
 
                         $itemNameForSale = !empty($row['clean_name']) ? $row['clean_name'] : (!empty($row['item_name']) ? $row['item_name'] : $fg['product_name']);
                         $subSkuId = !empty($row['sub_sku_id']) ? (int)$row['sub_sku_id'] : null;
@@ -445,7 +445,7 @@ class InOutController {
                         if (!$rm) throw new RuntimeException("Raw Material [ID: {$itemId}] not found.");
 
                         $effectiveRate = $rate > 0 ? $rate : (float)$rm['standard_rate'];
-                        $warehouseId = (int)($row['warehouse_id'] ?? 1);
+                        $warehouseId = InventoryService::getValidWarehouseId((int)($row['warehouse_id'] ?? 0));
 
                         InventoryService::decreaseStock(
                             'RM',

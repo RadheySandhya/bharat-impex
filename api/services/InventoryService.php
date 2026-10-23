@@ -6,6 +6,37 @@
 class InventoryService {
     
     /**
+     * Get or create a valid warehouse ID
+     * Prevents foreign key constraint violations if warehouses were wiped
+     */
+    public static function getValidWarehouseId(?int $requestedId = null, string $fallbackCode = 'WH-01', string $fallbackName = 'Main Warehouse'): int {
+        $db = Database::getConnection();
+
+        // 1. If requested ID is provided, verify it exists and is active
+        if ($requestedId && $requestedId > 0) {
+            $stmt = $db->prepare("SELECT id FROM warehouses WHERE id = ? AND active = 1");
+            $stmt->execute([$requestedId]);
+            $wh = $stmt->fetch();
+            if ($wh) return (int)$wh['id'];
+        }
+
+        // 2. Look for any existing active warehouse (preferred default first)
+        $defaultStmt = $db->query("SELECT id FROM warehouses WHERE active = 1 ORDER BY is_default DESC, id ASC LIMIT 1");
+        $existing = $defaultStmt->fetch();
+        if ($existing) {
+            return (int)$existing['id'];
+        }
+
+        // 3. If NO warehouses exist at all, self-heal by creating the primary Default Main Warehouse
+        $insertStmt = $db->prepare("
+            INSERT INTO warehouses (warehouse_code, warehouse_name, location, contact_person, phone, is_default, active, created_at, updated_at)
+            VALUES (?, ?, 'Factory Main Unit', 'Admin', '', 1, 1, NOW(), NOW())
+        ");
+        $insertStmt->execute([$fallbackCode, $fallbackName]);
+        return (int)$db->lastInsertId();
+    }
+
+    /**
      * Increase stock (e.g. Purchase, Production Output, Opening, Adjustment In, Transfer In)
      */
     public static function increaseStock(
@@ -26,6 +57,7 @@ class InventoryService {
         ?int $userId = null
     ): array {
         $db = Database::getConnection();
+        $warehouseId = self::getValidWarehouseId($warehouseId);
         $date = $transactionDate ?: date('Y-m-d');
         $qty = round($quantity, 3);
 
@@ -117,6 +149,7 @@ class InventoryService {
         bool $allowNegativeOverride = false
     ): array {
         $db = Database::getConnection();
+        $warehouseId = self::getValidWarehouseId($warehouseId);
         $date = $transactionDate ?: date('Y-m-d');
         $qty = round($quantity, 3);
 

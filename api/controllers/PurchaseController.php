@@ -62,7 +62,7 @@ class PurchaseController {
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
 
         $rmId = (int)($input['rm_id'] ?? 0);
-        $warehouseId = (int)($input['warehouse_id'] ?? 1);
+        $warehouseId = InventoryService::getValidWarehouseId((int)($input['warehouse_id'] ?? 0));
         $quantity = (float)($input['quantity'] ?? 0);
         $rate = (float)($input['rate'] ?? 0);
         $invoiceNumber = trim($input['invoice_number'] ?? 'MANUAL-' . date('Ymd'));
