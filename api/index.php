@@ -48,6 +48,7 @@ require_once __DIR__ . '/controllers/SettingsController.php';
 require_once __DIR__ . '/controllers/PlanningController.php';
 require_once __DIR__ . '/controllers/InOutController.php';
 require_once __DIR__ . '/controllers/SubSKUController.php';
+require_once __DIR__ . '/controllers/SubChildPartController.php';
 
 // Route Extraction
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
