@@ -6,10 +6,54 @@
 class BOMService {
     
     /**
+     * Self-healing: Ensure sub_child_parts table and bom_items.sub_child_part_id exist
+     */
+    public static function ensureSchema(PDO $db): void {
+        static $checked = false;
+        if ($checked) return;
+
+        try {
+            // Ensure sub_child_parts table exists
+            $db->exec("
+                CREATE TABLE IF NOT EXISTS `sub_child_parts` (
+                    `id` INT AUTO_INCREMENT PRIMARY KEY,
+                    `parent_rm_id` INT NOT NULL,
+                    `sub_part_code` VARCHAR(50) NOT NULL UNIQUE,
+                    `sub_part_name` VARCHAR(255) NOT NULL,
+                    `brand_name` VARCHAR(150) NOT NULL,
+                    `party_id` INT NULL,
+                    `unit_id` INT NOT NULL DEFAULT 1,
+                    `standard_rate` DECIMAL(12, 2) DEFAULT 0.00,
+                    `description` TEXT NULL,
+                    `active` TINYINT(1) DEFAULT 1,
+                    `created_by` INT NULL,
+                    `updated_by` INT NULL,
+                    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX `idx_scp_parent` (`parent_rm_id`),
+                    INDEX `idx_scp_brand` (`brand_name`),
+                    INDEX `idx_scp_party` (`party_id`),
+                    INDEX `idx_scp_name` (`sub_part_name`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            ");
+
+            // Ensure bom_items has sub_child_part_id
+            $cols = $db->query("SHOW COLUMNS FROM `bom_items` LIKE 'sub_child_part_id'")->fetchAll();
+            if (empty($cols)) {
+                $db->exec("ALTER TABLE `bom_items` ADD COLUMN `sub_child_part_id` INT NULL DEFAULT NULL AFTER `rm_id`");
+            }
+        } catch (Exception $e) {
+            // ignore
+        }
+        $checked = true;
+    }
+
+    /**
      * Get active BOM with all constituent items for a Finished Good
      */
     public static function getActiveBOMForProduct(int $fgId): ?array {
         $db = Database::getConnection();
+        self::ensureSchema($db);
         $stmt = $db->prepare("
             SELECT b.*, fg.fg_code, fg.product_name, u.unit_code as fg_unit
             FROM bom_headers b
@@ -43,6 +87,7 @@ class BOMService {
      */
     public static function calculateRequirements(int $bomId, float $plannedQty, int $warehouseId = 1): array {
         $db = Database::getConnection();
+        self::ensureSchema($db);
         
         $bomStmt = $db->prepare("SELECT * FROM bom_headers WHERE id = ?");
         $bomStmt->execute([$bomId]);

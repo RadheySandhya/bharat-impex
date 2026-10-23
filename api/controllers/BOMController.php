@@ -6,15 +6,7 @@
 class BOMController {
 
     private static function ensureSchema(PDO $db): void {
-        static $checked = false;
-        if ($checked) return;
-        try {
-            $cols = $db->query("SHOW COLUMNS FROM `bom_items` LIKE 'sub_child_part_id'")->fetchAll();
-            if (empty($cols)) {
-                $db->exec("ALTER TABLE `bom_items` ADD COLUMN `sub_child_part_id` INT NULL DEFAULT NULL AFTER `rm_id`");
-            }
-        } catch (Exception $e) {}
-        $checked = true;
+        BOMService::ensureSchema($db);
     }
 
     public static function index(): void {
