@@ -5,9 +5,22 @@
 
 class BOMController {
 
+    private static function ensureSchema(PDO $db): void {
+        static $checked = false;
+        if ($checked) return;
+        try {
+            $cols = $db->query("SHOW COLUMNS FROM `bom_items` LIKE 'sub_child_part_id'")->fetchAll();
+            if (empty($cols)) {
+                $db->exec("ALTER TABLE `bom_items` ADD COLUMN `sub_child_part_id` INT NULL DEFAULT NULL AFTER `rm_id`");
+            }
+        } catch (Exception $e) {}
+        $checked = true;
+    }
+
     public static function index(): void {
         Auth::requireAuth();
         $db = Database::getConnection();
+        self::ensureSchema($db);
 
         $fgId = $_GET['fg_id'] ?? null;
         $sql = "
@@ -209,6 +222,8 @@ class BOMController {
     public static function allItems(): void {
         Auth::requireAuth();
         $db = Database::getConnection();
+        self::ensureSchema($db);
+
         $sql = "
             SELECT 
                 bi.id,
@@ -219,6 +234,10 @@ class BOMController {
                 bi.rm_id,
                 rm.material_name as rm_name,
                 rm.rm_code,
+                bi.sub_child_part_id,
+                scp.sub_part_code,
+                scp.sub_part_name,
+                scp.brand_name as sub_part_brand,
                 bi.unit_id,
                 u.unit_code,
                 bi.quantity_per_unit as quantity,
@@ -227,6 +246,7 @@ class BOMController {
             JOIN bom_headers bh ON bi.bom_id = bh.id
             JOIN finished_goods fg ON bh.fg_id = fg.id
             JOIN raw_materials rm ON bi.rm_id = rm.id
+            LEFT JOIN sub_child_parts scp ON bi.sub_child_part_id = scp.id
             JOIN units u ON bi.unit_id = u.id
             WHERE bh.is_active = 1
             ORDER BY fg.product_name ASC, bi.sequence ASC, bi.id ASC
@@ -248,6 +268,7 @@ class BOMController {
         }
 
         $db = Database::getConnection();
+        self::ensureSchema($db);
         $db->beginTransaction();
 
         try {
@@ -256,6 +277,7 @@ class BOMController {
             foreach ($rows as $r) {
                 $fgId = (int)($r['fg_id'] ?? 0);
                 $rmId = (int)($r['rm_id'] ?? 0);
+                $subPartId = !empty($r['sub_child_part_id']) ? (int)$r['sub_child_part_id'] : null;
                 $qty  = (float)($r['quantity'] ?? 0);
                 $uId  = (int)($r['unit_id'] ?? 0);
 
@@ -265,9 +287,10 @@ class BOMController {
                     $byFg[$fgId] = [];
                 }
                 $byFg[$fgId][] = [
-                    'rm_id'    => $rmId,
-                    'unit_id'  => $uId,
-                    'quantity' => $qty,
+                    'rm_id'             => $rmId,
+                    'sub_child_part_id' => $subPartId,
+                    'unit_id'           => $uId,
+                    'quantity'          => $qty,
                 ];
             }
 
@@ -299,10 +322,10 @@ class BOMController {
                 // Delete existing items for this BOM
                 $db->prepare("DELETE FROM bom_items WHERE bom_id = ?")->execute([$bomId]);
 
-                // Insert updated items
+                // Insert updated items with sub_child_part_id
                 $insItem = $db->prepare("
-                    INSERT INTO bom_items (bom_id, rm_id, quantity_per_unit, unit_id, wastage_percentage, scrap_factor, sequence, mandatory)
-                    VALUES (?, ?, ?, ?, 0.00, 0.00, ?, 1)
+                    INSERT INTO bom_items (bom_id, rm_id, sub_child_part_id, quantity_per_unit, unit_id, wastage_percentage, scrap_factor, sequence, mandatory)
+                    VALUES (?, ?, ?, ?, ?, 0.00, 0.00, ?, 1)
                 ");
 
                 foreach ($items as $sIdx => $it) {
@@ -317,6 +340,7 @@ class BOMController {
                     $insItem->execute([
                         $bomId,
                         $it['rm_id'],
+                        $it['sub_child_part_id'],
                         $it['quantity'],
                         $unitId,
                         $sIdx + 1

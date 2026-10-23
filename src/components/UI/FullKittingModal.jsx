@@ -221,8 +221,17 @@ export function FullKittingModal({
                         </td>
                         <td className="py-2.5 px-3">
                           <span className="font-semibold text-slate-900">{item.material_name}</span>
+                          {item.sub_part_name && (
+                            <div className="mt-0.5">
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                <span>Variant:</span>
+                                <strong>[{item.sub_part_brand || 'OEM'}]</strong>
+                                <span>{item.sub_part_name}</span>
+                              </span>
+                            </div>
+                          )}
                           {item.quantity_per_unit && (
-                            <span className="text-[10px] text-slate-400 block font-mono">
+                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
                               ({Number(item.quantity_per_unit).toFixed(3)} {item.unit_code}/unit)
                             </span>
                           )}

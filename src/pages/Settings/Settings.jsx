@@ -25,7 +25,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Archive,
-  RotateCcw
+  RotateCcw,
+  Layers
 } from 'lucide-react';
 import { DataTable } from '../../components/UI/DataTable';
 import { StatusBadge } from '../../components/UI/StatusBadge';
@@ -78,6 +79,14 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
   const [subSkuSearch, setSubSkuSearch] = useState('');
   const [isSubSKUModalOpen, setIsSubSKUModalOpen] = useState(false);
   const [isSubSKUCSVModalOpen, setIsSubSKUCSVModalOpen] = useState(false);
+
+  // Sub-Child Parts (Component Varieties & Customer Mappings) States
+  const [subChildParts, setSubChildParts] = useState([]);
+  const [subChildBrands, setSubChildBrands] = useState([]);
+  const [subChildBrandFilter, setSubChildBrandFilter] = useState('ALL');
+  const [subChildSearch, setSubChildSearch] = useState('');
+  const [isSubChildModalOpen, setIsSubChildModalOpen] = useState(false);
+  const [partiesList, setPartiesList] = useState([]);
 
   // Modals
   const [isRMModalOpen, setIsRMModalOpen] = useState(false);
@@ -143,6 +152,19 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
     active: 1
   });
 
+  const [subChildForm, setSubChildForm] = useState({
+    id: null,
+    parent_rm_id: '',
+    sub_part_code: '',
+    sub_part_name: '',
+    brand_name: 'Somany',
+    party_id: '',
+    unit_id: 1,
+    standard_rate: '',
+    description: '',
+    active: 1
+  });
+
   const { success, error } = useToast();
 
   // Load reference categories & units for modals on mount
@@ -181,6 +203,18 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
           setBrands(subRes.data.brands || []);
         }
         if (fgRes?.data) setFinishedGoods(fgRes.data);
+      } else if (subTab === 'sub_child_parts') {
+        const [scpRes, rmRes, partyRes] = await Promise.all([
+          api.subChildParts.getAll(),
+          api.rawMaterials.getAll(),
+          api.inOut.getParties('ALL').catch(() => ({ data: [] }))
+        ]);
+        if (scpRes?.data) {
+          setSubChildParts(scpRes.data.sub_child_parts || []);
+          setSubChildBrands(scpRes.data.brands || []);
+        }
+        if (rmRes?.data) setRawMaterials(rmRes.data);
+        if (partyRes?.data) setPartiesList(partyRes.data);
       } else if (subTab === 'users') {
         const [usersRes, rolesRes] = await Promise.all([
           api.settings.getUsers(),
@@ -477,6 +511,64 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
       loadData();
     } catch (err) {
       error(err.message || 'Failed to delete Sub-SKU.');
+    }
+  };
+
+  // Sub-Child Part Handlers
+  const handleOpenAddSubChild = (presetRmId = null) => {
+    const parentId = presetRmId || (rawMaterials[0]?.id || '');
+    const parentRm = rawMaterials.find((r) => r.id === parentId);
+    setSubChildForm({
+      id: null,
+      parent_rm_id: parentId,
+      sub_part_code: '',
+      sub_part_name: '',
+      brand_name: 'Somany',
+      party_id: '',
+      unit_id: parentRm ? (parentRm.unit_id || 1) : 1,
+      standard_rate: parentRm ? Number(parentRm.standard_rate || 0) : '',
+      description: '',
+      active: 1
+    });
+    setIsSubChildModalOpen(true);
+  };
+
+  const handleOpenEditSubChild = (part) => {
+    setSubChildForm({
+      id: part.id,
+      parent_rm_id: part.parent_rm_id,
+      sub_part_code: part.sub_part_code,
+      sub_part_name: part.sub_part_name,
+      brand_name: part.brand_name,
+      party_id: part.party_id || '',
+      unit_id: part.unit_id || 1,
+      standard_rate: part.standard_rate || '',
+      description: part.description || '',
+      active: part.active !== undefined ? Number(part.active) : 1
+    });
+    setIsSubChildModalOpen(true);
+  };
+
+  const handleSubChildSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api.subChildParts.save(subChildForm);
+      success(subChildForm.id ? 'Sub-Child Part updated.' : 'New Sub-Child Part variety created.');
+      setIsSubChildModalOpen(false);
+      loadData();
+    } catch (err) {
+      error(err.message || 'Failed to save Sub-Child Part.');
+    }
+  };
+
+  const handleDeleteSubChild = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this Sub-Child Part variety?')) return;
+    try {
+      await api.subChildParts.delete(id);
+      success('Sub-Child Part variety deleted.');
+      loadData();
+    } catch (err) {
+      error(err.message || 'Failed to delete Sub-Child Part.');
     }
   };
 
@@ -865,6 +957,113 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
     return matchesBrand && matchesSearch;
   });
 
+  // Sub-Child Part Columns
+  const subChildColumns = [
+    {
+      header: 'Brand / Variety',
+      key: 'brand_name',
+      render: (b) => (
+        <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs">
+          {b}
+        </span>
+      )
+    },
+    {
+      header: 'Sub-Child Code',
+      key: 'sub_part_code',
+      render: (c) => <span className="font-mono font-bold text-slate-900">{c}</span>
+    },
+    {
+      header: 'Variant Part Name',
+      key: 'sub_part_name',
+      render: (n, r) => (
+        <div>
+          <span className="font-bold text-slate-900">{n}</span>
+          {r.description && <p className="text-[10px] text-slate-500 font-medium">{r.description}</p>}
+        </div>
+      )
+    },
+    {
+      header: 'Parent Child Part (Physical)',
+      key: 'parent_rm_code',
+      render: (c, r) => (
+        <div>
+          <span className="font-mono font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded text-[11px] border border-blue-200">
+            [{c}]
+          </span>
+          <span className="font-semibold text-slate-800 ml-1.5 text-xs">
+            {r.parent_rm_name}
+          </span>
+        </div>
+      )
+    },
+    {
+      header: 'Mapped Customer',
+      key: 'mapped_customer_name',
+      render: (cust) => cust ? (
+        <span className="px-2 py-0.5 rounded font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 text-xs">
+          {cust}
+        </span>
+      ) : (
+        <span className="text-slate-400 font-medium italic text-xs">Universal (All Customers)</span>
+      )
+    },
+    {
+      header: 'Standard Cost (₹)',
+      key: 'standard_rate',
+      align: 'right',
+      render: (rate, r) => (
+        <span className="font-mono font-bold text-slate-900">
+          ₹{Number(rate).toFixed(2)} <span className="text-[10px] text-slate-500 font-normal">/{r.unit_code || 'PCS'}</span>
+        </span>
+      )
+    },
+    {
+      header: 'Status',
+      key: 'active',
+      render: (a) => <StatusBadge status={a == 1 ? 'ACTIVE' : 'INACTIVE'} size="xs" />
+    },
+    {
+      header: 'Actions',
+      key: 'id',
+      align: 'right',
+      render: (id, row) => (
+        <div className="flex items-center justify-end gap-1.5">
+          <button
+            type="button"
+            onClick={() => handleOpenEditSubChild(row)}
+            className="p-1.5 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-700 transition-colors cursor-pointer"
+            title="Edit Sub-Child Part"
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => handleDeleteSubChild(id)}
+            className="p-1.5 rounded-lg bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-700 transition-colors cursor-pointer"
+            title="Delete Sub-Child Part"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )
+    }
+  ];
+
+  // Filtered Sub-Child Parts
+  const filteredSubChildParts = subChildParts.filter((s) => {
+    const matchesBrand = subChildBrandFilter === 'ALL' || s.brand_name === subChildBrandFilter;
+    const matchesSearch = !subChildSearch || (
+      s.sub_part_name?.toLowerCase().includes(subChildSearch.toLowerCase()) ||
+      s.sub_part_code?.toLowerCase().includes(subChildSearch.toLowerCase()) ||
+      s.brand_name?.toLowerCase().includes(subChildSearch.toLowerCase()) ||
+      s.parent_rm_name?.toLowerCase().includes(subChildSearch.toLowerCase()) ||
+      s.parent_rm_code?.toLowerCase().includes(subChildSearch.toLowerCase()) ||
+      s.mapped_customer_name?.toLowerCase().includes(subChildSearch.toLowerCase())
+    );
+    return matchesBrand && matchesSearch;
+  });
+
   return (
     <div className="space-y-6">
       {/* 1. Child Parts Master */}
@@ -1193,6 +1392,111 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
             data={filteredSubSkus} 
             loading={loading} 
             searchPlaceholder="Filter Sub-SKUs table..."
+          />
+        </div>
+      )}
+
+      {/* 4. Sub-Child Parts & Component Varieties Master */}
+      {subTab === 'sub_child_parts' && (
+        <div className="space-y-4">
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                <Layers className="w-5 h-5 text-amber-600" />
+                <span>Sub-Child Parts (Component Varieties & Customer Mappings)</span>
+              </h1>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">
+                Manage brand varieties (e.g. Somany, Prince Pipe, Zen Bath) for child parts like Cartridges, Spindles, or Aerators. Mapped to your generic Child Part inventory with customer-specific pricing & variants.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => handleOpenAddSubChild()}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Sub-Child Part</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Metrics Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Total Sub-Child Varieties</span>
+              <span className="text-xl font-black text-slate-900 font-mono mt-0.5 block">
+                {subChildParts.length}
+              </span>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Active Brands / OEM Lines</span>
+              <span className="text-xl font-black text-amber-600 font-mono mt-0.5 block">
+                {subChildBrands.length} Brands
+              </span>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Customer-Specific Mappings</span>
+              <span className="text-xl font-black text-indigo-600 font-mono mt-0.5 block">
+                {subChildParts.filter(s => s.party_id > 0).length} Mapped
+              </span>
+            </div>
+          </div>
+
+          {/* Quick Filter Bar by Brand */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+            {/* Brand Pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1 sm:pb-0">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Brand:</span>
+              <button
+                type="button"
+                onClick={() => setSubChildBrandFilter('ALL')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer shrink-0 ${
+                  subChildBrandFilter === 'ALL'
+                    ? 'bg-amber-600 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                All Brands ({subChildParts.length})
+              </button>
+              {subChildBrands.map((b) => {
+                const bCount = subChildParts.filter((s) => s.brand_name === b).length;
+                return (
+                  <button
+                    key={b}
+                    type="button"
+                    onClick={() => setSubChildBrandFilter(b)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer shrink-0 ${
+                      subChildBrandFilter === b
+                        ? 'bg-amber-600 text-white shadow-2xs'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    {b} ({bCount})
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Search Input */}
+            <div className="relative w-full sm:w-72">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={subChildSearch}
+                onChange={(e) => setSubChildSearch(e.target.value)}
+                placeholder="Search variety, brand, parent RM..."
+                className="w-full bg-slate-50 focus:bg-white pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium focus:ring-2 focus:ring-amber-600 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Sub-Child Parts DataTable */}
+          <DataTable 
+            columns={subChildColumns} 
+            data={filteredSubChildParts} 
+            loading={loading} 
+            searchPlaceholder="Filter Sub-Child Parts table..."
           />
         </div>
       )}
@@ -1916,6 +2220,196 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
               />
               <span className="font-semibold text-slate-800">Set as Primary Default Warehouse</span>
             </label>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Sub-Child Part Create / Edit Modal */}
+      <Modal
+        isOpen={isSubChildModalOpen}
+        onClose={() => setIsSubChildModalOpen(false)}
+        title={subChildForm.id ? `Edit Sub-Child Part — ${subChildForm.sub_part_code || subChildForm.sub_part_name}` : 'Add Sub-Child Part (Component Variety)'}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setIsSubChildModalOpen(false)}
+              className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700 cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="sub-child-form"
+              className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-xs font-bold text-white shadow-sm cursor-pointer"
+            >
+              {subChildForm.id ? 'Save Changes' : 'Create Variety'}
+            </button>
+          </>
+        }
+      >
+        <form id="sub-child-form" onSubmit={handleSubChildSubmit} className="space-y-4 text-xs">
+          {/* Parent Child Part (Raw Material) */}
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Parent Child Part (Stocked Component) *</label>
+            <SearchableSelect
+              value={subChildForm.parent_rm_id}
+              onChange={(val) => {
+                const parentRm = rawMaterials.find(r => String(r.id) === String(val));
+                setSubChildForm({
+                  ...subChildForm,
+                  parent_rm_id: val,
+                  unit_id: parentRm ? (parentRm.unit_id || subChildForm.unit_id) : subChildForm.unit_id,
+                  standard_rate: subChildForm.standard_rate || (parentRm ? Number(parentRm.standard_rate || 0) : '')
+                });
+              }}
+              placeholder="-- Choose Parent Child Part --"
+              searchPlaceholder="Search child parts by code or name..."
+              className="w-full"
+              buttonClassName="bg-white rounded-xl px-3 py-2 text-slate-900 border border-slate-300 font-semibold text-xs"
+              required
+              options={rawMaterials.map((rm) => ({
+                value: rm.id,
+                label: `${rm.material_name} (₹${Number(rm.standard_rate || 0).toFixed(2)})`,
+                sublabel: rm.rm_code
+              }))}
+            />
+            <p className="text-[10px] text-slate-500 mt-1">
+              Physical inventory stock balance is managed on this parent Child Part. This variant defines the specific brand specification.
+            </p>
+          </div>
+
+          {/* Brand Presets & Name */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-slate-700 font-bold">Brand / Variety Name *</label>
+              <div className="flex items-center gap-1">
+                {['Somany', 'Prince Pipe', 'Zen Bath', 'Jaquar', 'Standard'].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setSubChildForm({ ...subChildForm, brand_name: preset })}
+                    className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition-colors cursor-pointer"
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <input
+              type="text"
+              value={subChildForm.brand_name}
+              onChange={(e) => setSubChildForm({ ...subChildForm, brand_name: e.target.value })}
+              placeholder="e.g. Somany, Prince Pipe, Zen Bath, Jaquar"
+              className="w-full bg-white rounded-xl px-3 py-2 text-slate-900 border border-slate-300 font-bold focus:ring-2 focus:ring-amber-600"
+              required
+            />
+          </div>
+
+          {/* Sub-Child Part Name & Code */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Sub-Child Part Name *</label>
+              <input
+                type="text"
+                value={subChildForm.sub_part_name}
+                onChange={(e) => setSubChildForm({ ...subChildForm, sub_part_name: e.target.value })}
+                placeholder="e.g. Somany Ceramic Cartridge 35MM"
+                className="w-full bg-white rounded-xl px-3 py-2 text-slate-900 border border-slate-300 font-bold focus:ring-2 focus:ring-amber-600"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Sub-Child Code (Optional)</label>
+              <input
+                type="text"
+                value={subChildForm.sub_part_code}
+                onChange={(e) => setSubChildForm({ ...subChildForm, sub_part_code: e.target.value.toUpperCase() })}
+                placeholder="e.g. SCP-SOM-01 (Auto if blank)"
+                className="w-full bg-white rounded-xl px-3 py-2 text-slate-900 border border-slate-300 font-mono font-bold focus:ring-2 focus:ring-amber-600"
+              />
+            </div>
+          </div>
+
+          {/* Customer Mapping & Rate */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Customer Mapping (Optional)</label>
+              <SearchableSelect
+                value={subChildForm.party_id || ''}
+                onChange={(val) => setSubChildForm({ ...subChildForm, party_id: val || '' })}
+                placeholder="-- Universal (All Customers) --"
+                searchPlaceholder="Search customer / party..."
+                className="w-full"
+                buttonClassName="bg-white rounded-xl px-3 py-2 text-slate-900 border border-slate-300 font-semibold text-xs"
+                clearable={true}
+                options={[
+                  { value: '', label: '-- Universal (All Customers) --' },
+                  ...partiesList.map((p) => ({
+                    value: p.id,
+                    label: p.party_name,
+                    sublabel: p.party_type || 'Party'
+                  }))
+                ]}
+              />
+              <p className="text-[10px] text-slate-400 mt-0.5">Map if this variety is exclusively required for a specific client order.</p>
+            </div>
+
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Standard Cost / Rate (₹)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={subChildForm.standard_rate}
+                onChange={(e) => setSubChildForm({ ...subChildForm, standard_rate: e.target.value })}
+                placeholder="e.g. 45.00"
+                className="w-full bg-white rounded-xl px-3 py-2 text-slate-900 border border-slate-300 font-mono font-bold focus:ring-2 focus:ring-amber-600"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Unit of Measure</label>
+              <select
+                value={subChildForm.unit_id || 1}
+                onChange={(e) => setSubChildForm({ ...subChildForm, unit_id: Number(e.target.value) })}
+                className="w-full bg-white rounded-xl px-3 py-2 text-slate-900 border border-slate-300 font-semibold focus:ring-2 focus:ring-amber-600"
+              >
+                {units.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.unit_name} ({u.unit_code})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Status</label>
+              <div className="pt-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={subChildForm.active === 1}
+                    onChange={(e) => setSubChildForm({ ...subChildForm, active: e.target.checked ? 1 : 0 })}
+                    className="w-4 h-4 rounded text-amber-600 border-slate-300 focus:ring-amber-600"
+                  />
+                  <span className="font-semibold text-slate-700">Active Sub-Child Part</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Technical Specs / Remarks</label>
+            <input
+              type="text"
+              value={subChildForm.description}
+              onChange={(e) => setSubChildForm({ ...subChildForm, description: e.target.value })}
+              placeholder="e.g. 35mm Ceramic Disc Cartridge with brass lever spindle"
+              className="w-full bg-white rounded-xl px-3 py-2 text-slate-900 border border-slate-300 focus:ring-2 focus:ring-amber-600"
+            />
           </div>
         </form>
       </Modal>

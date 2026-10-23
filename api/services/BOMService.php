@@ -56,10 +56,12 @@ class BOMService {
             SELECT bi.*, rm.rm_code, rm.material_name, u.unit_code, rm.standard_rate,
                    COALESCE(s.quantity, 0) as current_stock,
                    COALESCE(s.reserved_quantity, 0) as reserved_stock,
-                   COALESCE(s.available_quantity, 0) as available_stock
+                   COALESCE(s.available_quantity, 0) as available_stock,
+                   scp.sub_part_code, scp.sub_part_name, scp.brand_name as sub_part_brand
             FROM bom_items bi
             JOIN raw_materials rm ON bi.rm_id = rm.id
             JOIN units u ON bi.unit_id = u.id
+            LEFT JOIN sub_child_parts scp ON bi.sub_child_part_id = scp.id
             LEFT JOIN stock s ON s.material_type = 'RM' AND s.material_id = rm.id AND s.warehouse_id = ?
             WHERE bi.bom_id = ?
             ORDER BY bi.sequence ASC
@@ -90,6 +92,10 @@ class BOMService {
                 'rm_id'              => (int)$item['rm_id'],
                 'rm_code'            => $item['rm_code'],
                 'material_name'      => $item['material_name'],
+                'sub_child_part_id'  => !empty($item['sub_child_part_id']) ? (int)$item['sub_child_part_id'] : null,
+                'sub_part_code'      => $item['sub_part_code'] ?? null,
+                'sub_part_name'      => $item['sub_part_name'] ?? null,
+                'sub_part_brand'     => $item['sub_part_brand'] ?? null,
                 'unit_id'            => (int)$item['unit_id'],
                 'unit_code'          => $item['unit_code'],
                 'quantity_per_unit'  => (float)$item['quantity_per_unit'],

@@ -396,6 +396,22 @@ export const api = {
     }),
   },
 
+  // Sub-Child Parts (Child Part Varieties & Customer Mappings)
+  subChildParts: {
+    getAll: (params = {}) => {
+      const q = new URLSearchParams(params).toString();
+      return request(`/sub-child-parts?${q}`);
+    },
+    save: (data) => request('/sub-child-parts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    delete: (id) => request('/sub-child-parts/delete', {
+      method: 'POST',
+      body: JSON.stringify({ id }),
+    }),
+  },
+
   // Dynamic Processes & Routes
   processes: {
     getAll: () => request('/processes'),

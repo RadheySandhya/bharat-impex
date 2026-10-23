@@ -39,6 +39,7 @@ export function Sidebar({ activeTab, setActiveTab, settingsSubTab, setSettingsSu
       hasSubmenu: true,
       subItems: [
         { id: 'raw_materials', label: 'Child Parts Master', iconKey: 'package' },
+        { id: 'sub_child_parts', label: 'Sub-Child Parts (Varieties)', iconKey: 'layers' },
         { id: 'finished_goods', label: 'Finished Goods (SKUs)', iconKey: 'packagecheck' },
         { id: 'warehouses', label: 'Warehouse Master', iconKey: 'warehouse' },
         { id: 'sub_skus', label: 'Sub-SKUs (Brand Mapping)', iconKey: 'tags' },

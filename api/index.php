@@ -358,6 +358,16 @@ try {
             if ($method === 'POST') SubSKUController::bulkImport();
             break;
 
+        // Sub-Child Parts (Component Varieties & Customer Mappings)
+        case 'sub-child-parts':
+            if ($method === 'GET') SubChildPartController::index();
+            elseif ($method === 'POST') SubChildPartController::save();
+            elseif ($method === 'DELETE') SubChildPartController::delete();
+            break;
+        case 'sub-child-parts/delete':
+            if ($method === 'POST') SubChildPartController::delete();
+            break;
+
         // Tally Item Mappings
         case 'mappings':
             if ($method === 'GET') MappingController::index();
