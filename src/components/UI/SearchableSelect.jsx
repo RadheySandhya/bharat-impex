@@ -38,6 +38,7 @@ export function SearchableSelect({
   maxDisplay = 100
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [dropUp, setDropUp] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
 
@@ -129,11 +130,22 @@ export function SearchableSelect({
     return matches;
   }, [normalizedOptions, searchQuery, maxDisplay]);
 
-  // Auto-focus search input when opening
+  // Auto-focus search input when opening & dynamically calculate dropUp position
   useEffect(() => {
     if (isOpen) {
       setSearchQuery('');
       setHighlightedIndex(0);
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const spaceAbove = rect.top;
+        // Flip upwards if space below is limited (< 280px) and space above is larger
+        if (spaceBelow < 280 && spaceAbove > 180) {
+          setDropUp(true);
+        } else {
+          setDropUp(false);
+        }
+      }
       setTimeout(() => {
         if (searchInputRef.current) {
           searchInputRef.current.focus();
@@ -215,7 +227,7 @@ export function SearchableSelect({
   };
 
   return (
-    <div className={`relative ${className}`} ref={containerRef} onKeyDown={handleKeyDown}>
+    <div className={`relative ${isOpen ? 'z-50' : 'z-auto'} ${className}`} ref={containerRef} onKeyDown={handleKeyDown}>
       {/* Hidden input for form validation */}
       {required && (
         <input
@@ -234,30 +246,30 @@ export function SearchableSelect({
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setIsOpen(!isOpen)}
-        className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-left bg-white border rounded-xl text-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
-          disabled ? 'bg-slate-50 text-slate-400 cursor-not-allowed border-slate-200' : 'cursor-pointer hover:border-slate-300 border-slate-200 text-slate-800'
+        className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-left bg-white border rounded-xl text-xs font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
+          disabled ? 'bg-slate-50 text-slate-400 cursor-not-allowed border-slate-200' : 'cursor-pointer hover:border-slate-300 border-slate-200 text-slate-800 shadow-2xs'
         } ${isOpen ? 'ring-2 ring-blue-500/20 border-blue-500' : ''} ${buttonClassName}`}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
       >
-        <div className="flex items-center gap-2 truncate flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 truncate flex-1 min-w-0">
           {IconComponent && <IconComponent className="w-4 h-4 text-slate-400 shrink-0" />}
           {selectedOption ? (
-            <div className="flex items-center gap-2 truncate">
+            <div className="flex items-center gap-1.5 truncate">
               {selectedOption.sublabel && (
-                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-semibold shrink-0">
+                <span className="font-mono text-[10px] px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-bold border border-slate-200/80 shrink-0">
                   {selectedOption.sublabel}
                 </span>
               )}
-              <span className="truncate font-medium text-slate-900">{selectedOption.label}</span>
+              <span className="truncate font-bold text-slate-900">{selectedOption.label}</span>
               {selectedOption.badge && (
-                <span className="text-[10px] uppercase font-bold text-slate-400 shrink-0">
+                <span className="text-[10px] uppercase font-bold text-slate-400 shrink-0 font-mono">
                   ({selectedOption.badge})
                 </span>
               )}
             </div>
           ) : (
-            <span className="text-slate-400 select-none truncate">{placeholder}</span>
+            <span className="text-slate-400 select-none truncate font-normal">{placeholder}</span>
           )}
         </div>
 
@@ -273,18 +285,20 @@ export function SearchableSelect({
               <X className="w-3.5 h-3.5" />
             </span>
           )}
-          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180 text-blue-600' : ''}`} />
+          <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180 text-blue-600' : ''}`} />
         </div>
       </button>
 
       {/* Dropdown Floating Menu */}
       {isOpen && (
         <div
-          className={`absolute left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100 text-slate-800 ring-1 ring-black/5 ${dropdownClassName}`}
-          style={{ minWidth: '240px' }}
+          className={`absolute left-0 ${
+            dropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+          } bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100 text-slate-800 ring-1 ring-black/10 ${dropdownClassName}`}
+          style={{ minWidth: '320px', maxWidth: '460px' }}
         >
           {/* Search Input Bar */}
-          <div className="p-2 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
+          <div className="p-2 border-b border-slate-100 bg-slate-50/80 flex items-center gap-2">
             <Search className="w-4 h-4 text-slate-400 shrink-0 ml-1" />
             <input
               ref={searchInputRef}
@@ -295,13 +309,13 @@ export function SearchableSelect({
                 setHighlightedIndex(0);
               }}
               placeholder={searchPlaceholder}
-              className="w-full bg-transparent text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none py-1"
+              className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-2xs"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="text-slate-400 hover:text-slate-600 p-0.5"
+                className="text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -311,7 +325,7 @@ export function SearchableSelect({
           {/* Options List */}
           <div
             ref={listRef}
-            className="max-h-60 overflow-y-auto p-1 divide-y divide-slate-50 select-none"
+            className="max-h-60 overflow-y-auto p-1.5 divide-y divide-slate-50 select-none"
             role="listbox"
           >
             {filteredOptions.length === 0 ? (
@@ -330,7 +344,7 @@ export function SearchableSelect({
                       data-option-index={idx}
                       onClick={() => handleSelect(opt)}
                       onMouseEnter={() => setHighlightedIndex(idx)}
-                      className={`cursor-pointer transition-colors ${
+                      className={`cursor-pointer transition-colors rounded-xl ${
                         isHighlighted ? 'bg-blue-50 text-blue-900' : isSelected ? 'bg-slate-50 font-semibold' : 'text-slate-700 hover:bg-slate-50'
                       }`}
                     >
@@ -345,11 +359,11 @@ export function SearchableSelect({
                     data-option-index={idx}
                     onClick={() => handleSelect(opt)}
                     onMouseEnter={() => setHighlightedIndex(idx)}
-                    className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-xs cursor-pointer transition-all ${
+                    className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs cursor-pointer transition-all ${
                       isHighlighted
-                        ? 'bg-blue-50 text-blue-900'
+                        ? 'bg-blue-50 text-blue-900 shadow-2xs font-semibold'
                         : isSelected
-                        ? 'bg-blue-50/50 text-blue-900 font-semibold'
+                        ? 'bg-blue-50/70 text-blue-900 font-bold border-l-4 border-blue-600 pl-2'
                         : 'text-slate-700 hover:bg-slate-50'
                     }`}
                     role="option"
@@ -357,13 +371,13 @@ export function SearchableSelect({
                   >
                     <div className="flex items-center gap-2 truncate min-w-0">
                       {opt.sublabel && (
-                        <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 shrink-0 border border-slate-200/60">
+                        <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 shrink-0 border border-slate-200/80">
                           {opt.sublabel}
                         </span>
                       )}
                       <span className="truncate">{opt.label}</span>
                       {opt.category && (
-                        <span className="text-[10px] text-slate-400 shrink-0">
+                        <span className="text-[10px] text-slate-400 font-normal shrink-0">
                           • {opt.category}
                         </span>
                       )}
@@ -371,7 +385,7 @@ export function SearchableSelect({
 
                     <div className="flex items-center gap-1 shrink-0">
                       {opt.badge && (
-                        <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">
+                        <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded font-bold border border-slate-200/60 uppercase">
                           {opt.badge}
                         </span>
                       )}

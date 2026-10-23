@@ -24,6 +24,7 @@ import {
   Boxes,
   Check,
   ChevronRight,
+  ChevronDown,
   Info
 } from 'lucide-react';
 import Icon from '../../components/UI/Icon';
@@ -726,7 +727,7 @@ export function InOut() {
 
           {/* SPREADSHEET TABLE GRID */}
           <div className="bg-white border border-slate-300 rounded-2xl shadow-xs overflow-hidden">
-            <div className="overflow-x-auto max-h-[640px] scrollbar-thin">
+            <div className="overflow-x-auto min-h-[380px] max-h-[640px] scrollbar-thin pb-28">
               <table className="w-full text-left border-collapse text-xs">
                 {/* Header Row */}
                 <thead className="sticky top-0 z-20 shadow-xs select-none">
@@ -737,7 +738,7 @@ export function InOut() {
                     </th>
 
                     {/* Col A: Type (IN / OUT) */}
-                    <th className="p-2.5 bg-[#e0e7ff] text-[#1e1b4b] min-w-[120px]">
+                    <th className="p-2.5 bg-[#e0e7ff] text-[#1e1b4b] min-w-[155px]">
                       <div className="flex items-center justify-between">
                         <span>Type (In / Out)</span>
                         <span className="text-[10px] opacity-70 font-mono">Col A</span>
@@ -745,7 +746,7 @@ export function InOut() {
                     </th>
 
                     {/* Col B: Party Name */}
-                    <th className="p-2.5 bg-[#fef3c7] text-[#78350f] min-w-[230px]">
+                    <th className="p-2.5 bg-[#fef3c7] text-[#78350f] min-w-[240px]">
                       <div className="flex items-center justify-between">
                         <span>Party Name (Supplier / Customer)</span>
                         <span className="text-[10px] opacity-70 font-mono">Col B</span>
@@ -753,7 +754,7 @@ export function InOut() {
                     </th>
 
                     {/* Col C: Category (RM / FG) */}
-                    <th className="p-2.5 bg-[#f1f5f9] text-[#1e293b] min-w-[110px]">
+                    <th className="p-2.5 bg-[#f1f5f9] text-[#1e293b] min-w-[155px]">
                       <div className="flex items-center justify-between">
                         <span>Category</span>
                         <span className="text-[10px] opacity-70 font-mono">Col C</span>
@@ -761,7 +762,7 @@ export function InOut() {
                     </th>
 
                     {/* Col D: Item Name */}
-                    <th className="p-2.5 bg-[#dcfce7] text-[#14532d] min-w-[240px]">
+                    <th className="p-2.5 bg-[#dcfce7] text-[#14532d] min-w-[300px]">
                       <div className="flex items-center justify-between">
                         <span>Item Name</span>
                         <span className="text-[10px] opacity-70 font-mono">Col D</span>
@@ -875,18 +876,23 @@ export function InOut() {
 
                           {/* Col A: Type (IN / OUT) */}
                           <td className="p-1.5">
-                            <select
-                              value={row.type}
-                              onChange={(e) => handleCellChange(originalIdx, 'type', e.target.value)}
-                              className={`w-full text-xs font-bold rounded-lg px-2 py-1.5 border cursor-pointer focus:ring-2 shadow-2xs ${
-                                row.type === 'IN'
-                                  ? 'bg-emerald-100 text-emerald-900 border-emerald-400 focus:ring-emerald-500'
-                                  : 'bg-rose-100 text-rose-900 border-rose-400 focus:ring-rose-500'
-                              }`}
-                            >
-                              <option value="IN">↓ IN (Purchase Inward)</option>
-                              <option value="OUT">↑ OUT (Sales Dispatch)</option>
-                            </select>
+                            <div className="relative">
+                              <select
+                                value={row.type}
+                                onChange={(e) => handleCellChange(originalIdx, 'type', e.target.value)}
+                                className={`w-full appearance-none text-xs font-extrabold rounded-xl pl-2.5 pr-7 py-2 border cursor-pointer focus:outline-none focus:ring-2 shadow-2xs transition-all ${
+                                  row.type === 'IN'
+                                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border-emerald-300 focus:ring-emerald-500/20 focus:border-emerald-500'
+                                    : 'bg-rose-50 hover:bg-rose-100 text-rose-900 border-rose-300 focus:ring-rose-500/20 focus:border-rose-500'
+                                }`}
+                              >
+                                <option value="IN">↓ IN (Purchase)</option>
+                                <option value="OUT">↑ OUT (Sales)</option>
+                              </select>
+                              <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              </div>
+                            </div>
                           </td>
 
                           {/* Col B: Party Name (Combobox / Free typing + Datalist) */}
@@ -898,10 +904,10 @@ export function InOut() {
                                 placeholder="Select or type Party..."
                                 value={row.party_name || ''}
                                 onChange={(e) => handleCellChange(originalIdx, 'party_name', e.target.value)}
-                                className={`w-full text-xs font-semibold bg-white rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:ring-2 border ${
+                                className={`w-full text-xs font-semibold bg-white rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 border transition-all ${
                                   isOut
-                                    ? 'border-rose-300 focus:ring-rose-500/30 focus:border-rose-500'
-                                    : 'border-emerald-300 focus:ring-emerald-500/30 focus:border-emerald-500'
+                                    ? 'border-rose-200 hover:border-rose-300 focus:ring-rose-500/20 focus:border-rose-500'
+                                    : 'border-emerald-200 hover:border-emerald-300 focus:ring-emerald-500/20 focus:border-emerald-500'
                                 }`}
                               />
                               <datalist id={`party-list-${row.row_id}`}>
@@ -916,28 +922,33 @@ export function InOut() {
 
                           {/* Col C: Category (RM / FG) */}
                           <td className="p-1.5">
-                            <select
-                              value={row.material_type}
-                              onChange={(e) => handleCellChange(originalIdx, 'material_type', e.target.value)}
-                              className="w-full text-xs font-semibold rounded-lg px-2 py-1.5 bg-white border border-slate-300 text-slate-700 cursor-pointer focus:ring-2 focus:ring-slate-400"
-                            >
-                              <option value="RM">Child Part (RM)</option>
-                              <option value="FG">Finished Good (FG)</option>
-                            </select>
+                            <div className="relative">
+                              <select
+                                value={row.material_type}
+                                onChange={(e) => handleCellChange(originalIdx, 'material_type', e.target.value)}
+                                className="w-full appearance-none text-xs font-bold rounded-xl pl-2.5 pr-7 py-2 bg-white border border-slate-200 hover:border-slate-300 text-slate-800 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-2xs transition-all"
+                              >
+                                <option value="RM">Child Part (RM)</option>
+                                <option value="FG">Finished Good (FG)</option>
+                              </select>
+                              <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              </div>
+                            </div>
                           </td>
 
                           {/* Col D: Item Name (Searchable Dropdown + Variant Badge + 2 Action Buttons) */}
                           <td className="p-1.5">
                             <div className="flex items-start gap-1">
-                              <div className="flex-1 min-w-[210px]">
+                              <div className="flex-1 min-w-[220px]">
                                 <SearchableSelect
                                   value={row.sub_sku_id ? `sub_${row.sub_sku_id}` : (row.item_id || '')}
                                   onChange={(val) => handleCellChange(originalIdx, 'item_selection', val)}
                                   placeholder="-- Choose Item --"
                                   searchPlaceholder="Type name, code, brand..."
                                   className="w-full"
-                                  buttonClassName={`text-xs font-semibold rounded-lg px-2 py-1.5 bg-white border ${
-                                    isOut ? 'border-rose-300' : 'border-emerald-300'
+                                  buttonClassName={`text-xs font-semibold rounded-xl px-2.5 py-2 bg-white border transition-all ${
+                                    isOut ? 'border-rose-200 hover:border-rose-300' : 'border-emerald-200 hover:border-emerald-300'
                                   }`}
                                   options={row.material_type === 'RM' ? (
                                     rawMaterials.map((item) => ({
@@ -1023,7 +1034,7 @@ export function InOut() {
                                   type="button"
                                   onClick={() => setChildPartStockModal({ isOpen: true, row, item: itemObj })}
                                   title={row.material_type === 'FG' ? "Check BOM Child Parts & Stock Requirement" : "View Child Part Brand Varieties & Stock"}
-                                  className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors shadow-2xs cursor-pointer"
+                                  className="p-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors shadow-2xs cursor-pointer"
                                 >
                                   <Layers className="w-3.5 h-3.5" />
                                 </button>
@@ -1033,7 +1044,7 @@ export function InOut() {
                                   type="button"
                                   onClick={() => setGodownStockModal({ isOpen: true, row, item: itemObj })}
                                   title="Check Godown-Wise Stock Breakdown"
-                                  className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 transition-colors shadow-2xs cursor-pointer"
+                                  className="p-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 transition-colors shadow-2xs cursor-pointer"
                                 >
                                   <Building2 className="w-3.5 h-3.5" />
                                 </button>
