@@ -30,31 +30,31 @@ export function ToastProvider({ children }) {
     <ToastContext.Provider value={{ success, error, warning, info }}>
       {children}
       {/* Toast Notification Container */}
-      <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-md w-full pointer-events-none px-4">
+      <div className="fixed z-[70] inset-x-0 top-0 sm:top-auto sm:inset-x-auto sm:bottom-5 sm:right-5 flex flex-col gap-2 w-full sm:max-w-sm pointer-events-none px-3 sm:px-0" style={{ paddingTop: 'max(env(safe-area-inset-top), 10px)' }} role="status" aria-live="polite">
         {toasts.map((toast) => {
           const typeConfig = {
             success: {
               border: 'border-emerald-200',
               iconName: 'circlecheck',
-              iconColor: 'text-emerald-600',
+              iconColor: 'text-[#34C759]',
               textColor: 'text-emerald-950',
             },
             error: {
               border: 'border-rose-200',
               iconName: 'circlealert',
-              iconColor: 'text-rose-600',
+              iconColor: 'text-[#FF3B30]',
               textColor: 'text-rose-950',
             },
             warning: {
               border: 'border-amber-200',
               iconName: 'warning',
-              iconColor: 'text-amber-600',
+              iconColor: 'text-[#FF9500]',
               textColor: 'text-amber-950',
             },
             info: {
               border: 'border-slate-200',
               iconName: 'info',
-              iconColor: 'text-slate-600',
+              iconColor: 'text-[#007AFF]',
               textColor: 'text-slate-900',
             },
           };
@@ -64,17 +64,17 @@ export function ToastProvider({ children }) {
           return (
             <div
               key={toast.id}
-              className={`pointer-events-auto flex items-start gap-3 p-4 rounded-2xl shadow-xl border bg-white backdrop-blur-md transform transition-all duration-300 animate-in fade-in slide-in-from-bottom-5 ${cfg.border} ${cfg.textColor}`}
+              className="bi-toast pointer-events-auto flex items-start gap-3 px-4 py-3 rounded-[18px] material shadow-lg text-slate-900"
             >
               <div className="shrink-0 mt-0.5">
                 <Icon name={cfg.iconName} size="md" className={cfg.iconColor} ariaHidden={true} />
               </div>
-              <div className="flex-1 text-xs font-semibold leading-relaxed">{toast.message}</div>
+              <div className="flex-1 text-[13px] font-medium leading-snug tracking-[-0.006em]">{toast.message}</div>
               <button
                 type="button"
                 onClick={() => removeToast(toast.id)}
                 aria-label="Dismiss notification"
-                className="shrink-0 text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                className="shrink-0 text-slate-400 hover:text-slate-700 p-1 rounded-full hover:bg-black/5 cursor-pointer"
               >
                 <Icon name="close" size="xs" ariaHidden={true} />
               </button>

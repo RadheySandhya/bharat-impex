@@ -4,62 +4,63 @@ import { useAuth } from '../../context/AuthContext';
 import { useDateRange } from '../../context/DateRangeContext';
 import { DateRangePicker } from '../UI/DateRangePicker';
 
+const TITLES = {
+  dashboard: 'Dashboard',
+  planning: 'Production Planning',
+  sku_tracker: 'SKU Tracking',
+  operator_queue: 'My Queue',
+  inventory: 'Stock & Godowns',
+  in_out: 'In / Out',
+  purchase: 'In / Out',
+  sales: 'In / Out',
+  production: 'Production',
+  sku_bom: 'SKU & BOM',
+  production_process: 'Process Maps',
+  processes: 'Process Maps',
+  rejections: 'Rejections',
+  reports: 'Reports',
+  settings: 'Settings',
+};
+
 export function Navbar({ activeTab, toggleSidebar }) {
   const { user } = useAuth();
   const { dateRange, setDateRange } = useDateRange();
-
-  const titles = {
-    dashboard: 'Dashboard',
-    planning: 'Production Planning',
-    sku_tracker: 'SKU Tracking',
-    inventory: 'Stock & Inventory',
-    purchase: 'Purchase & Tally CSV',
-    sales: 'Sales & Dispatch',
-    sku_bom: 'SKU & Multi-BOM',
-    rejections: 'Rejection & Scrap Stock',
-    settings: 'Masters & Settings',
-  };
+  const initials = (user?.full_name || user?.username || 'U')
+    .split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 
   return (
-    <header className="sticky top-0 z-30 h-16 bg-white/95 backdrop-blur-md border-b border-slate-200/90 px-3 sm:px-6 flex items-center justify-between shadow-xs gap-3">
-      {/* Left section: Toggle & Title */}
-      <div className="flex items-center gap-2.5 sm:gap-4 min-w-0">
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          aria-label="Toggle navigation menu"
-          className="p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 lg:hidden transition-colors cursor-pointer shrink-0"
-        >
-          <Icon name="menu" size="md" ariaHidden={true} />
-        </button>
-
-        <div className="min-w-0">
-          <h2 className="text-sm sm:text-base font-extrabold text-slate-900 capitalize tracking-tight truncate flex items-center gap-2">
-            {titles[activeTab] || 'Bharat Impex ERP'}
-          </h2>
-          <p className="text-[11px] text-slate-500 hidden md:block font-medium truncate flex items-center gap-2">
-            <span>Bharat Impex Manufacturing & Stock Suite</span>
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              v1.0.1 • Git Auto-Deploy Active
-            </span>
-          </p>
-        </div>
-      </div>
-
-      {/* Right section: Global Date Filter + Clean User Badge */}
-      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-        {/* Global Date Range Selector across all menus */}
-        <div className="flex items-center">
-          <DateRangePicker
-            value={dateRange}
-            onChange={(val) => setDateRange(val)}
-          />
+    <header
+      className="sticky top-0 z-30 material hairline-b"
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
+    >
+      <div className="h-14 px-3 sm:px-6 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            aria-label="Open menu"
+            className="lg:hidden w-9 h-9 -ml-1 flex items-center justify-center rounded-full text-[#007AFF] hover:bg-black/5 cursor-pointer"
+          >
+            <Icon name="menu" size="md" ariaHidden={true} />
+          </button>
+          <h1 className="text-[17px] sm:text-[19px] font-semibold tracking-[-0.022em] text-slate-900 truncate">
+            {TITLES[activeTab] || 'Bharat Impex'}
+          </h1>
         </div>
 
-        <div className="flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200/80">
-          <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-          <span className="text-xs font-semibold text-slate-700 truncate max-w-[100px] sm:max-w-none">{user?.full_name || 'Admin'}</span>
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <div className="hidden sm:block">
+            <DateRangePicker value={dateRange} onChange={(val) => setDateRange(val)} />
+          </div>
+          <div className="flex items-center gap-2" title={`${user?.full_name || ''} — ${user?.role_name || ''}`}>
+            <div className="hidden md:block text-right leading-tight">
+              <p className="text-[13px] font-medium text-slate-900 truncate max-w-[180px]">{user?.full_name || 'User'}</p>
+              <p className="text-[11px] text-slate-500 truncate max-w-[180px]">{user?.role_name || ''}</p>
+            </div>
+            <div className="w-8 h-8 rounded-full bg-gradient-to-b from-slate-400 to-slate-500 text-white text-[12px] font-semibold flex items-center justify-center shadow-xs">
+              {initials}
+            </div>
+          </div>
         </div>
       </div>
     </header>
@@ -67,4 +68,3 @@ export function Navbar({ activeTab, toggleSidebar }) {
 }
 
 export default Navbar;
-

@@ -2,11 +2,9 @@ import React, { useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { Navbar } from './Navbar';
 import { MobileBottomNav } from './MobileBottomNav';
-import { QuickActionModal } from '../UI/QuickActionModal';
 
 export function Layout({ children, activeTab, setActiveTab, settingsSubTab, setSettingsSubTab }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [quickActionOpen, setQuickActionOpen] = useState(false);
   const [collapsed, setCollapsedState] = useState(() => {
     try { return localStorage.getItem('bharat_sidebar_collapsed') === '1'; } catch (e) { return false; }
   });
@@ -16,9 +14,8 @@ export function Layout({ children, activeTab, setActiveTab, settingsSubTab, setS
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#F5F5F7] text-slate-900 flex flex-col">
       <div className="flex-1 flex min-h-0">
-        {/* Sidebar for Desktop */}
         <Sidebar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
@@ -30,34 +27,19 @@ export function Layout({ children, activeTab, setActiveTab, settingsSubTab, setS
           setCollapsed={setCollapsed}
         />
 
-        {/* Main Content Area */}
-        <div className={`flex-1 flex flex-col min-w-0 ${collapsed ? 'lg:pl-[76px]' : 'lg:pl-72'} transition-[padding] duration-200 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0`}>
-          <Navbar
-            activeTab={activeTab}
-            setActiveTab={setActiveTab}
-            toggleSidebar={() => setSidebarOpen((prev) => !prev)}
-          />
-
-          <main className="flex-1 p-3.5 sm:p-5 lg:p-6 overflow-y-auto">
-            {children}
+        <div
+          className={`flex-1 flex flex-col min-w-0 transition-[padding] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${
+            collapsed ? 'lg:pl-[72px]' : 'lg:pl-[272px]'
+          } pb-[calc(4.25rem+env(safe-area-inset-bottom))] lg:pb-0`}
+        >
+          <Navbar activeTab={activeTab} setActiveTab={setActiveTab} toggleSidebar={() => setSidebarOpen((prev) => !prev)} />
+          <main className="flex-1 px-3 py-4 sm:px-6 sm:py-6 lg:px-8 overflow-y-auto">
+            <div className="mx-auto w-full max-w-[1680px]">{children}</div>
           </main>
         </div>
       </div>
 
-      {/* Mobile Floating Bottom Navigation Dock */}
-      <MobileBottomNav
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        onMenuOpen={() => setSidebarOpen(true)}
-      />
-
-      {/* Quick Action Modal (FAB) */}
-      <QuickActionModal
-        isOpen={quickActionOpen}
-        onClose={() => setQuickActionOpen(false)}
-        setActiveTab={setActiveTab}
-      />
+      <MobileBottomNav activeTab={activeTab} setActiveTab={setActiveTab} onMenuOpen={() => setSidebarOpen(true)} />
     </div>
   );
 }
-

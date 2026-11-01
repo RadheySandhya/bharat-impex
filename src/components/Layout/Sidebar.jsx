@@ -2,266 +2,214 @@ import React, { useState, useEffect } from 'react';
 import Icon from '../UI/Icon';
 import { useAuth } from '../../context/AuthContext';
 import { canOpenTab, canSettingsSub } from '../../utils/access';
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, ChevronRight, LogOut } from 'lucide-react';
 import { InstallAppButton } from '../UI/InstallAppButton';
 
+// Source list, grouped the way people think about the factory
+const SECTIONS = [
+  {
+    title: 'Production',
+    items: [
+      { id: 'sku_tracker', label: 'SKU Tracking', iconKey: 'filespreadsheet' },
+      { id: 'planning', label: 'Planning', iconKey: 'calendar' },
+      { id: 'rejections', label: 'Rejections', iconKey: 'circlex' },
+      { id: 'production_process', label: 'Process Maps', iconKey: 'production_process' },
+    ],
+  },
+  {
+    title: 'Stock',
+    items: [
+      { id: 'inventory', label: 'Stock & Godowns', iconKey: 'boxes' },
+      { id: 'in_out', label: 'In / Out', iconKey: 'in_out' },
+      { id: 'sku_bom', label: 'SKU & BOM', iconKey: 'tags' },
+    ],
+  },
+  {
+    title: 'Overview',
+    items: [
+      { id: 'dashboard', label: 'Dashboard', iconKey: 'dashboard' },
+      {
+        id: 'settings',
+        label: 'Settings',
+        iconKey: 'settings',
+        hasSubmenu: true,
+        subItems: [
+          { id: 'raw_materials', label: 'Child Parts' },
+          { id: 'sub_child_parts', label: 'Part Varieties' },
+          { id: 'finished_goods', label: 'Finished Goods' },
+          { id: 'warehouses', label: 'Godowns' },
+          { id: 'sub_skus', label: 'Brand Sub-SKUs' },
+          { id: 'users', label: 'Users & Roles' },
+          { id: 'company', label: 'Company' },
+          { id: 'audit', label: 'Audit Log' },
+        ],
+      },
+    ],
+  },
+];
+
 export function Sidebar({ activeTab, setActiveTab, settingsSubTab, setSettingsSubTab, isOpen, setIsOpen, collapsed = false, setCollapsed }) {
-  // Desktop-only icon rail; the phone drawer always shows labels
-  const hideLg = collapsed ? 'lg:hidden' : '';
   const { user, logout, hasPermission } = useAuth();
   const [settingsExpanded, setSettingsExpanded] = useState(activeTab === 'settings');
+  const rail = collapsed; // desktop icon rail; the phone drawer always shows labels
+  const hideLg = rail ? 'lg:hidden' : '';
 
   useEffect(() => {
-    if (activeTab === 'settings') {
-      setSettingsExpanded(true);
-    }
+    if (activeTab === 'settings') setSettingsExpanded(true);
   }, [activeTab]);
 
-  const navItems = [
-    { id: 'dashboard', label: 'Dashboard', iconKey: 'dashboard' },
-    { 
-      id: 'planning', 
-      label: 'Production Planning', 
-      iconKey: 'calendar', 
-    },
-    { 
-      id: 'sku_tracker', 
-      label: 'SKU Tracking', 
-      iconKey: 'filespreadsheet', 
-    },
-    {
-      id: 'inventory',
-      label: 'Stock & Inventory',
-      iconKey: 'boxes',
-    },
-    { id: 'in_out', label: 'In / Out', iconKey: 'in_out' },
-    { id: 'sku_bom', label: 'SKU & Multi-BOM', iconKey: 'tags' },
-    { id: 'rejections', label: 'Rejection & Scrap Stock', iconKey: 'circlex' },
-    { 
-      id: 'settings', 
-      label: 'Masters & Settings', 
-      iconKey: 'settings',
-      hasSubmenu: true,
-      subItems: [
-        { id: 'raw_materials', label: 'Child Parts Master', iconKey: 'package' },
-        { id: 'sub_child_parts', label: 'Sub-Child Parts (Varieties)', iconKey: 'layers' },
-        { id: 'finished_goods', label: 'Finished Goods (SKUs)', iconKey: 'packagecheck' },
-        { id: 'warehouses', label: 'Warehouse Master', iconKey: 'warehouse' },
-        { id: 'sub_skus', label: 'Sub-SKUs (Brand Mapping)', iconKey: 'tags' },
-        { id: 'users', label: 'Users & Roles', iconKey: 'users' },
-        { id: 'company', label: 'Company Profile', iconKey: 'building2' },
-        { id: 'audit', label: 'Security Audit Logs', iconKey: 'shieldcheck' },
-      ]
-    },
-    { id: 'production_process', label: 'Production Process', iconKey: 'production_process' },
-  ];
+  const closeOnPhone = () => { if (window.innerWidth < 1024) setIsOpen(false); };
 
-  // Only modules this user's role allows
-  const visibleNavItems = navItems.filter((item) => canOpenTab(item.hasSubmenu ? 'settings' : item.id, hasPermission));
-
-  const handleNavClick = (item) => {
-    if (item.hasSubmenu && collapsed && setCollapsed && window.innerWidth >= 1024) {
-      setCollapsed(false); // open the rail so the settings sub-menu is readable
-      setActiveTab('settings');
-      setSettingsExpanded(true);
-      return;
-    }
+  const openItem = (item) => {
     if (item.hasSubmenu) {
+      if (rail && setCollapsed && window.innerWidth >= 1024) setCollapsed(false);
       if (activeTab === 'settings') {
-        setSettingsExpanded(!settingsExpanded);
+        setSettingsExpanded((v) => !v);
       } else {
         setActiveTab('settings');
         setSettingsExpanded(true);
-        if (window.innerWidth < 1024) setIsOpen(false);
       }
-    } else {
-      setActiveTab(item.id);
-      if (window.innerWidth < 1024) setIsOpen(false);
+      return;
     }
+    setActiveTab(item.id);
+    closeOnPhone();
   };
 
-  const handleSubItemClick = (subId, e) => {
-    e.stopPropagation();
+  const openSub = (subId) => {
     setActiveTab('settings');
     if (setSettingsSubTab) setSettingsSubTab(subId);
-    if (window.innerWidth < 1024) setIsOpen(false);
+    closeOnPhone();
   };
+
+  const visibleSections = SECTIONS
+    .map((s) => ({ ...s, items: s.items.filter((it) => canOpenTab(it.hasSubmenu ? 'settings' : it.id, hasPermission)) }))
+    .filter((s) => s.items.length > 0);
+
+  const initials = (user?.full_name || user?.username || 'U')
+    .split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 
   return (
     <>
-      {/* Mobile Backdrop */}
+      {/* Phone: dim to focus */}
       {isOpen && (
-        <div
-          className="fixed inset-0 bg-slate-900/30 backdrop-blur-xs z-40 lg:hidden"
-          onClick={() => setIsOpen(false)}
-        />
+        <div className="fixed inset-0 bg-black/25 z-40 lg:hidden bi-scrim" onClick={() => setIsOpen(false)} aria-hidden="true" />
       )}
 
-      {/* Sidebar Container */}
       <aside
-        className={`fixed top-0 left-0 bottom-0 z-40 w-72 bg-white border-r border-slate-200/90 shadow-xs flex flex-col transition-[transform,width] duration-200 ease-out lg:translate-x-0 ${
-          collapsed ? 'lg:w-[76px]' : ''
+        aria-label="Main navigation"
+        className={`fixed top-0 left-0 bottom-0 z-40 w-[272px] flex flex-col material-strong hairline-r transition-[translate,width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] lg:translate-x-0 ${
+          rail ? 'lg:w-[72px]' : ''
         } ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        style={{ paddingTop: 'env(safe-area-inset-top)' }}
       >
-        {/* Brand Header */}
-        <div className={`p-5 border-b border-slate-100 flex items-center justify-between bg-white ${collapsed ? 'lg:px-3 lg:flex-col lg:gap-3' : ''}`}>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center shadow-xs font-black text-white tracking-wider text-sm">
-              BI
-            </div>
-            <div className={hideLg}>
-              <h1 className="font-extrabold text-base tracking-tight text-slate-900 leading-tight">BHARAT IMPEX</h1>
-              <p className="text-[11px] text-slate-500 font-semibold flex items-center gap-1.5">
-                <Icon name="qc" size="xs" className="text-emerald-600" ariaHidden={true} /> Manufacturing Suite
-              </p>
+        {/* App identity */}
+        <div className={`h-14 px-4 flex items-center justify-between shrink-0 ${rail ? 'lg:px-0 lg:justify-center' : ''}`}>
+          <div className={`flex items-center gap-2.5 min-w-0 ${rail ? 'lg:hidden' : ''}`}>
+            <img src="./icons/icon-192.png" alt="" className="w-7 h-7 rounded-[8px] shadow-xs" />
+            <div className="min-w-0 leading-tight">
+              <p className="text-[14px] font-semibold tracking-[-0.016em] text-slate-900 truncate">Bharat Impex</p>
+              <p className="text-[11px] text-slate-500 truncate">Manufacturing</p>
             </div>
           </div>
           {setCollapsed && (
             <button
               type="button"
-              onClick={() => setCollapsed(!collapsed)}
-              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              aria-expanded={!collapsed}
-              className="hidden lg:flex w-8 h-8 items-center justify-center rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 active:scale-90 transition-transform cursor-pointer"
+              onClick={() => setCollapsed(!rail)}
+              title={rail ? 'Show sidebar' : 'Hide sidebar'}
+              aria-label={rail ? 'Show sidebar' : 'Hide sidebar'}
+              aria-expanded={!rail}
+              className="hidden lg:flex w-8 h-8 items-center justify-center rounded-lg text-slate-500 hover:text-slate-900 hover:bg-black/5 cursor-pointer"
             >
-              {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+              {rail ? <PanelLeftOpen className="w-[18px] h-[18px]" /> : <PanelLeftClose className="w-[18px] h-[18px]" />}
             </button>
           )}
         </div>
 
-        {/* Navigation Links */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 space-y-1 custom-scrollbar">
-          <div className={`text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 pb-1.5 ${hideLg}`}>
-            Enterprise Modules
-          </div>
+        {/* Source list */}
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2.5 pb-3 no-scrollbar">
+          {visibleSections.map((section) => (
+            <div key={section.title} className="mt-3 first:mt-1">
+              <p className={`px-2.5 pb-1 text-[11px] font-semibold text-slate-500 ${hideLg}`}>{section.title}</p>
+              <ul className="space-y-px">
+                {section.items.map((item) => {
+                  const active = activeTab === item.id;
+                  return (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        onClick={() => openItem(item)}
+                        title={rail ? item.label : undefined}
+                        aria-current={active ? 'page' : undefined}
+                        className={`w-full h-8 flex items-center gap-2.5 px-2.5 rounded-[8px] text-[13px] cursor-pointer ${
+                          rail ? 'lg:justify-center lg:px-0 lg:h-10' : ''
+                        } ${active ? 'bg-[#007AFF] text-white font-medium shadow-xs' : 'text-slate-800 hover:bg-black/[0.05]'}`}
+                      >
+                        <Icon
+                          name={item.iconKey}
+                          size="sm"
+                          strokeWidth={active ? 2.2 : 1.8}
+                          className={active ? 'text-white' : 'text-[#007AFF]'}
+                          ariaHidden={true}
+                        />
+                        <span className={`flex-1 text-left truncate ${hideLg}`}>{item.label}</span>
+                        {item.hasSubmenu && (
+                          <ChevronRight
+                            className={`w-3.5 h-3.5 transition-transform duration-200 ${settingsExpanded ? 'rotate-90' : ''} ${active ? 'text-white/80' : 'text-slate-400'} ${hideLg}`}
+                            aria-hidden="true"
+                          />
+                        )}
+                      </button>
 
-          {visibleNavItems.map((item) => {
-            const isActive = activeTab === item.id;
-
-            if (item.hasSubmenu) {
-              return (
-                <div key={item.id} className="space-y-1">
-                  <button
-                    type="button"
-                    onClick={() => handleNavClick(item)}
-                    title={collapsed ? item.label : undefined}
-                    className={`w-full flex items-center justify-between ${collapsed ? 'lg:justify-center' : ''} px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 group cursor-pointer ${
-                      isActive
-                        ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200/80 shadow-xs'
-                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Icon
-                        name={item.iconKey}
-                        size="sm"
-                        className={`transition-colors ${isActive ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-700'}`}
-                        ariaHidden={true}
-                      />
-                      <span className={hideLg}>{item.label}</span>
-                    </div>
-
-                    <Icon
-                      name={settingsExpanded ? "chevrondown" : "chevronright"}
-                      size="xs"
-                      className={`transition-transform duration-200 ${hideLg} ${isActive ? 'text-blue-600' : 'text-slate-400'}`}
-                      ariaHidden={true}
-                    />
-                  </button>
-
-                  {/* Submenu Accordion */}
-                  {settingsExpanded && !collapsed && (
-                    <div className="pl-4 pr-1 py-1 space-y-0.5 border-l-2 border-slate-200 ml-5 my-1">
-                      {item.subItems.filter((sub) => canSettingsSub(sub.id, hasPermission)).map((sub) => {
-                        const isSubActive = isActive && settingsSubTab === sub.id;
-                        return (
-                          <button
-                            key={sub.id}
-                            type="button"
-                            onClick={(e) => handleSubItemClick(sub.id, e)}
-                            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                              isSubActive
-                                ? 'bg-blue-100/80 text-blue-800 font-bold shadow-2xs'
-                                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
-                            }`}
-                          >
-                            <Icon
-                              name={sub.iconKey}
-                              size="xs"
-                              className={isSubActive ? 'text-blue-700' : 'text-slate-400'}
-                              ariaHidden={true}
-                            />
-                            <span className="truncate">{sub.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => handleNavClick(item)}
-                title={collapsed ? item.label : undefined}
-                className={`w-full flex items-center justify-between ${collapsed ? 'lg:justify-center' : ''} px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 group cursor-pointer ${
-                  isActive
-                    ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200/80 shadow-xs'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Icon
-                    name={item.iconKey}
-                    size="sm"
-                    className={`transition-colors ${isActive ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-700'}`}
-                    ariaHidden={true}
-                  />
-                  <span className={hideLg}>{item.label}</span>
-                </div>
-
-                {item.badge && !isActive && !collapsed && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-md font-bold bg-slate-100 text-slate-600 border border-slate-200">
-                    {item.badge}
-                  </span>
-                )}
-                {isActive && !collapsed && (
-                  <Icon name="chevronright" size="xs" className="text-blue-600" ariaHidden={true} />
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* User Profile & Logout */}
-        <div className="p-3 border-t border-slate-100 bg-slate-50/50 space-y-2">
-          <InstallAppButton
-            compact={collapsed}
-            className={`w-full py-2 bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 ${collapsed ? 'lg:px-0' : ''}`}
-          />
-          <div className={`p-2.5 rounded-xl bg-white border border-slate-200/80 shadow-xs flex items-center justify-between ${collapsed ? 'lg:flex-col lg:gap-2' : ''}`}>
-            <div className="flex items-center gap-2.5 overflow-hidden">
-              <div className="w-8 h-8 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-black text-slate-700 shrink-0">
-                {user?.username?.substring(0, 2).toUpperCase() || 'AD'}
-              </div>
-              <div className={`overflow-hidden ${hideLg}`}>
-                <p className="text-xs font-bold text-slate-900 truncate leading-tight">{user?.full_name || 'Bharat Impex Admin'}</p>
-                <p className="text-[10px] text-slate-500 font-medium truncate">{user?.role_name || user?.role_code || 'Administrator'}</p>
-              </div>
+                      {item.hasSubmenu && settingsExpanded && !rail && (
+                        <ul className="mt-px mb-1 space-y-px">
+                          {item.subItems.filter((sub) => canSettingsSub(sub.id, hasPermission)).map((sub) => {
+                            const subActive = active && settingsSubTab === sub.id;
+                            return (
+                              <li key={sub.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => openSub(sub.id)}
+                                  className={`w-full h-7 pl-9 pr-2.5 flex items-center rounded-[7px] text-[12.5px] text-left cursor-pointer ${
+                                    subActive ? 'bg-black/[0.08] text-slate-900 font-medium' : 'text-slate-600 hover:bg-black/[0.04]'
+                                  }`}
+                                >
+                                  <span className="truncate">{sub.label}</span>
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
+          ))}
+        </nav>
 
+        {/* Account */}
+        <div className={`p-2.5 space-y-2 hairline-t ${rail ? 'lg:px-2' : ''}`} style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 10px)' }}>
+          <InstallAppButton
+            compact={rail}
+            className="w-full h-8 bg-white/70 text-[#007AFF] hover:bg-white shadow-xs text-[12.5px]"
+          />
+          <div className={`flex items-center gap-2.5 px-1.5 ${rail ? 'lg:flex-col lg:px-0' : ''}`}>
+            <div className="w-8 h-8 shrink-0 rounded-full bg-gradient-to-b from-slate-400 to-slate-500 text-white text-[12px] font-semibold flex items-center justify-center" title={user?.full_name}>
+              {initials}
+            </div>
+            <div className={`flex-1 min-w-0 leading-tight ${hideLg}`}>
+              <p className="text-[13px] font-medium text-slate-900 truncate">{user?.full_name || 'User'}</p>
+              <p className="text-[11px] text-slate-500 truncate">{user?.role_name || ''}</p>
+            </div>
             <button
               type="button"
               onClick={logout}
-              title="Logout"
-              aria-label="Logout"
-              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+              title="Sign out"
+              aria-label="Sign out"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-[#FF3B30] hover:bg-black/5 cursor-pointer"
             >
-              <Icon name="logout" size="sm" ariaHidden={true} />
+              <LogOut className="w-4 h-4" />
             </button>
           </div>
         </div>
