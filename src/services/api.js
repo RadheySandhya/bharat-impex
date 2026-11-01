@@ -165,6 +165,10 @@ export const api = {
 
   // In / Out (Unified Purchase & Sales Spreadsheet)
   inOut: {
+    bulkImportParties: (rows, mode = 'preview') => request('/in-out/parties/bulk-import', {
+      method: 'POST',
+      body: JSON.stringify({ rows, mode }),
+    }),
     getAll: (params = {}) => {
       const q = new URLSearchParams(params).toString();
       return request(`/in-out?${q}`);

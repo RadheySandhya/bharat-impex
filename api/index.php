@@ -210,6 +210,9 @@ try {
         case 'in-out/parties':
             InOutController::parties();
             break;
+        case 'in-out/parties/bulk-import':
+            if ($method === 'POST') InOutController::bulkParties();
+            break;
         case 'in-out/items':
             if ($method === 'GET') InOutController::items();
             break;

@@ -85,6 +85,114 @@ class InOutController {
     }
 
     /**
+     * POST in-out/parties/bulk-import {mode: 'preview'|'commit', rows: [{party_name, party_type, contact_person, phone, email, gstin, address}]}
+     * Classifies each row: NEW, DUPLICATE (already in Party Master by name or GSTIN),
+     * DUPLICATE_IN_FILE (repeated in the CSV) or INVALID. Commit creates only the NEW rows.
+     */
+    public static function bulkParties(): void {
+        Auth::requireAuth();
+        $db = Database::getConnection();
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $rows = $input['rows'] ?? [];
+        $commit = ($input['mode'] ?? 'preview') === 'commit';
+        if (!is_array($rows) || !$rows) Response::error('The CSV has no rows.', null, 400);
+        if (count($rows) > 5000) Response::error('Too many rows (max 5000 per file).', null, 400);
+
+        $norm = fn($s) => mb_strtolower(preg_replace('/\s+/', ' ', trim((string)$s)));
+        $normGst = fn($s) => strtoupper(preg_replace('/\s+/', '', (string)$s));
+
+        $byName = [];
+        $byGst = [];
+        foreach ($db->query("SELECT id, party_name, gstin FROM parties")->fetchAll() as $p) {
+            $byName[$norm($p['party_name'])] = $p['party_name'];
+            if (trim((string)$p['gstin']) !== '') $byGst[$normGst($p['gstin'])] = $p['party_name'];
+        }
+
+        $typeMap = ['SUPPLIER' => 'SUPPLIER', 'VENDOR' => 'SUPPLIER', 'CUSTOMER' => 'CUSTOMER', 'BUYER' => 'CUSTOMER', 'BOTH' => 'BOTH', '' => 'BOTH'];
+        $seenName = [];
+        $seenGst = [];
+        $result = [];
+        foreach ($rows as $i => $r) {
+            $name = preg_replace('/\s+/', ' ', trim((string)($r['party_name'] ?? '')));
+            $gst = $normGst($r['gstin'] ?? '');
+            $typeRaw = strtoupper(trim((string)($r['party_type'] ?? '')));
+            $item = [
+                'row' => $i + 2, // CSV line number (header is line 1)
+                'party_name' => $name,
+                'party_type' => $typeMap[$typeRaw] ?? 'BOTH',
+                'contact_person' => trim((string)($r['contact_person'] ?? '')),
+                'phone' => trim((string)($r['phone'] ?? '')),
+                'email' => trim((string)($r['email'] ?? '')),
+                'gstin' => $gst,
+                'address' => trim((string)($r['address'] ?? '')),
+                'status' => 'NEW',
+                'message' => '',
+            ];
+            $key = $norm($name);
+            if ($name === '') {
+                $item['status'] = 'INVALID';
+                $item['message'] = 'Party name is empty';
+            } elseif ($gst !== '' && !preg_match('/^[0-9]{2}[A-Z0-9]{13}$/', $gst)) {
+                $item['status'] = 'INVALID';
+                $item['message'] = 'GSTIN should be 15 characters';
+            } elseif (isset($byName[$key])) {
+                $item['status'] = 'DUPLICATE';
+                $item['message'] = "Already in Party Master as \"{$byName[$key]}\"";
+            } elseif ($gst !== '' && isset($byGst[$gst])) {
+                $item['status'] = 'DUPLICATE';
+                $item['message'] = "GSTIN already used by \"{$byGst[$gst]}\"";
+            } elseif (isset($seenName[$key])) {
+                $item['status'] = 'DUPLICATE_IN_FILE';
+                $item['message'] = "Repeated in this file (line {$seenName[$key]})";
+            } elseif ($gst !== '' && isset($seenGst[$gst])) {
+                $item['status'] = 'DUPLICATE_IN_FILE';
+                $item['message'] = "Same GSTIN as line {$seenGst[$gst]} in this file";
+            }
+            if ($item['status'] === 'NEW') {
+                $seenName[$key] = $item['row'];
+                if ($gst !== '') $seenGst[$gst] = $item['row'];
+            }
+            $result[] = $item;
+        }
+
+        $counts = array_count_values(array_column($result, 'status'));
+        $summary = [
+            'total' => count($result),
+            'new' => $counts['NEW'] ?? 0,
+            'duplicate' => ($counts['DUPLICATE'] ?? 0) + ($counts['DUPLICATE_IN_FILE'] ?? 0),
+            'invalid' => $counts['INVALID'] ?? 0,
+        ];
+
+        if (!$commit) {
+            Response::success(['summary' => $summary, 'rows' => $result], 'Preview ready.');
+        }
+
+        $created = 0;
+        $db->beginTransaction();
+        try {
+            $ins = $db->prepare("
+                INSERT INTO parties (party_name, party_type, contact_person, phone, email, gstin, address, active)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+            ");
+            foreach ($result as $item) {
+                if ($item['status'] !== 'NEW') continue;
+                $ins->execute([
+                    $item['party_name'], $item['party_type'], $item['contact_person'] ?: null, $item['phone'] ?: null,
+                    $item['email'] ?: null, $item['gstin'] ?: null, $item['address'] ?: null,
+                ]);
+                $created++;
+            }
+            $db->commit();
+        } catch (Exception $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            Response::error('Import failed, nothing was saved: ' . $e->getMessage(), null, 400);
+        }
+        AuditService::log('PARTIES_BULK_IMPORT', 'IN_OUT', null, null, ['created' => $created, 'skipped' => $summary['duplicate'] + $summary['invalid']]);
+        $summary['created'] = $created;
+        Response::success(['summary' => $summary, 'rows' => $result], "{$created} parties created, " . ($summary['duplicate'] + $summary['invalid']) . ' skipped.');
+    }
+
+    /**
      * Combined list of all items (RMs and FGs) with live stock
      */
     public static function items(): void {

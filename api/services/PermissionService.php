@@ -306,6 +306,7 @@ class PermissionService {
             'in-out/items'                 => ['*' => ['in_out.view']],
             'in-out/parties'               => ['GET' => ['in_out.view'], 'POST' => ['in_out.parties', 'in_out.purchase', 'in_out.sale']],
             'in-out/batch-save'            => ['*' => ['in_out.purchase', 'in_out.sale']],
+            'in-out/parties/bulk-import'   => ['*' => ['in_out.parties']],
             'planning'                     => ['GET' => ['planning.view'], 'POST' => ['planning.edit']],
             'planning/stats'               => ['*' => ['planning.view', 'sku_tracking.view']],
             'planning/show'                => ['*' => ['planning.view', 'sku_tracking.view']],

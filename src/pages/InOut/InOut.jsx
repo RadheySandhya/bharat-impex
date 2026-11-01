@@ -30,6 +30,7 @@ import {
 import Icon from '../../components/UI/Icon';
 import Modal from '../../components/UI/Modal';
 import SearchableSelect from '../../components/UI/SearchableSelect';
+import { PartyImportModal } from '../../components/UI/PartyImportModal';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
@@ -89,6 +90,7 @@ export function InOut() {
 
   // Party Master Modal State
   const [isPartyModalOpen, setIsPartyModalOpen] = useState(false);
+  const [isPartyImportOpen, setIsPartyImportOpen] = useState(false);
   const [newPartyForm, setNewPartyForm] = useState({
     party_name: '',
     party_type: 'BOTH',
@@ -1544,15 +1546,35 @@ export function InOut() {
                 Manage all suppliers, customers, and trade partners for Bharat Impex.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setIsPartyModalOpen(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>+ Add New Party</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {hasPermission('in_out.parties') && (
+                <button
+                  type="button"
+                  onClick={() => setIsPartyImportOpen(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-[#007AFF] text-xs font-semibold border border-slate-200 shadow-xs cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Import CSV</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsPartyModalOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Add New Party</span>
+              </button>
+            </div>
           </div>
+          <PartyImportModal
+            isOpen={isPartyImportOpen}
+            onClose={() => setIsPartyImportOpen(false)}
+            onImported={async () => {
+              const pRes = await api.inOut.getParties('ALL');
+              if (pRes?.data) setParties(pRes.data);
+            }}
+          />
 
           <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
             <table className="w-full text-left text-xs border-collapse">
