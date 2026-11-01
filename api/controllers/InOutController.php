@@ -175,7 +175,7 @@ class InOutController {
             $bomStmt = $db->query("
                 SELECT b.fg_id, bi.rm_id, rm.rm_code, rm.material_name, bi.quantity_per_unit, u.unit_code,
                        COALESCE((SELECT SUM(stk.quantity) FROM stock stk WHERE stk.material_type = 'RM' AND stk.material_id = rm.id), 0) AS current_stock
-                FROM boms b
+                FROM bom_headers b
                 JOIN bom_items bi ON bi.bom_id = b.id
                 JOIN raw_materials rm ON bi.rm_id = rm.id
                 JOIN units u ON bi.unit_id = u.id
