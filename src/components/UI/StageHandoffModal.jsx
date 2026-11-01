@@ -51,6 +51,7 @@ export function StageHandoffModal({
   const [rejQty, setRejQty] = useState(0);
   const [minorQty, setMinorQty] = useState(0);
   const [rejReason, setRejReason] = useState(DEFECT_REASONS[0]);
+  const [rejWeightKg, setRejWeightKg] = useState('');
   const [returnStage, setReturnStage] = useState(stageKey);
   const [operatorName, setOperatorName] = useState('Supervisor / Operator');
   const [remarks, setRemarks] = useState('');
@@ -65,6 +66,7 @@ export function StageHandoffModal({
     setMinorQty(0);
     setReturnStage(stageKey);
     setRemarks('');
+    setRejWeightKg('');
   }, [currentAvailable, stageKey, row?.id]);
 
   useEffect(() => {
@@ -152,7 +154,8 @@ export function StageHandoffModal({
         operatorName,
         remarks,
         warehouseId: isFinalToReady ? Number(selectedWarehouseId) || null : null,
-        scrapWeightKg: (Number(rejQty) * avgWeight).toFixed(3)
+        scrapWeightKg: (Number(rejWeightKg) > 0 ? Number(rejWeightKg) : Number(rejQty) * avgWeight).toFixed(3),
+        rejPieceWeightKg: Number(rejWeightKg) > 0 && rejQty > 0 ? Number(rejWeightKg) / Number(rejQty) : avgWeight
       });
     }
     onClose();
@@ -252,6 +255,20 @@ export function StageHandoffModal({
               >
                 {DEFECT_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1" htmlFor="rej-weight">Weight of rejected pieces (kg)</label>
+              <input
+                id="rej-weight"
+                type="number"
+                step="0.001"
+                min="0"
+                value={rejWeightKg}
+                onChange={(e) => setRejWeightKg(e.target.value)}
+                placeholder={`≈ ${(rejQty * avgWeight).toFixed(3)} (${rejQty} × ${avgWeight} kg)`}
+                className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 text-slate-900 font-semibold"
+              />
+              <p className="text-[10px] text-amber-900/70 mt-1">Weigh the rejected pieces and enter the kg. Leave blank to use the estimate.</p>
             </div>
             <p className="text-[11px] text-amber-900/80">
               Furnace or rework is decided later inside the rejection pipeline (Rejections → Pipeline).

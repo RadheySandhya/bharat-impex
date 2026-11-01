@@ -352,6 +352,7 @@ export function SKUTrackingSheet() {
             rm_deducted: Boolean(rel.rm_deducted !== undefined ? rel.rm_deducted : existing.rm_deducted),
             item_name: (rel.product_name || existing.item_name).toUpperCase(),
             qty_recd_casting: qty,
+            avg_weight: Number(existing.avg_weight) > 0 ? Number(existing.avg_weight) : 0.35,
             stages: normalizeBatchStages(existing.stages, qty, cDate),
             ready: existing.ready || { date_form: '', stock_qty: 0, total_rejection: 0, status: 'In Production' }
           };
@@ -639,7 +640,7 @@ export function SKUTrackingSheet() {
   };
 
   // Handle stage handoff confirmation
-  const handleConfirmHandoff = async ({ rowId, stageKey, stageName, nextStageKey, goodQty, rejQty, minorQty = 0, furnaceQty = 0, rejectionSplits = [], rejReason, disposition, reworkStage, operatorName, remarks, scrapWeightKg, warehouseId }) => {
+  const handleConfirmHandoff = async ({ rowId, stageKey, stageName, nextStageKey, goodQty, rejQty, minorQty = 0, furnaceQty = 0, rejectionSplits = [], rejReason, disposition, reworkStage, operatorName, remarks, scrapWeightKg, rejPieceWeightKg, warehouseId }) => {
     const targetRow = data.find((item) => item.id === rowId) || handoffRow;
 
     // If handing off to Ready FG Stock, trigger the backend API to deposit to central Finished Goods Stock
@@ -682,7 +683,7 @@ export function SKUTrackingSheet() {
           source_stage_key: stageKey,
           source_stage_name: stageObj?.full_name || stageName || stageKey,
           defect_reason: rejReason,
-          avg_weight: Number(targetRow.avg_weight || 0.35),
+          avg_weight: Number(rejPieceWeightKg) > 0 ? Number(rejPieceWeightKg) : Number(targetRow.avg_weight || 0.35),
           operator: operatorName,
           remarks,
           splits: rejectionSplits,
@@ -761,7 +762,8 @@ export function SKUTrackingSheet() {
             release_id: updated.release_id,
             batch_no: updated.batch_no,
             stages: updated.stages,
-            ready: updated.ready
+            ready: updated.ready,
+            avg_weight: Number(updated.avg_weight) || undefined
           }).catch((err) => { warning(`Not saved: ${err.message}`); loadSKUData(stages); });
         }
 
@@ -843,7 +845,8 @@ export function SKUTrackingSheet() {
           release_id: updated.release_id,
           batch_no: updated.batch_no,
           stages: updated.stages,
-          ready: updated.ready
+          ready: updated.ready,
+          avg_weight: Number(updated.avg_weight) || undefined
         }).catch((err) => { warning(`Not saved: ${err.message}`); loadSKUData(stages); });
       }
       return nextData;
@@ -1478,6 +1481,19 @@ export function SKUTrackingSheet() {
             </div>
 
             <div className="space-y-3 text-xs">
+              <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+                <label className="text-slate-700 text-[11px] font-semibold block" htmlFor="edit-avg-wt">Avg weight per piece (kg)</label>
+                <input
+                  id="edit-avg-wt"
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  value={editForm.avg_weight ?? 0.35}
+                  onChange={(e) => setEditForm({ ...editForm, avg_weight: e.target.value })}
+                  className="w-full p-1.5 rounded-lg border border-slate-300 bg-white text-slate-900 font-bold"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">Used to work out the weight of rejected pieces sent to the furnace.</p>
+              </div>
               {stages.map((stg) => {
                 const stgData = editForm.stages?.[stg.key] || {};
                 return (

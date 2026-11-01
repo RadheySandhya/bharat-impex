@@ -554,6 +554,7 @@ class RejectionController {
         $id = (int)($input['id'] ?? 0);
         $minor = round((float)($input['minor_qty'] ?? 0), 3);
         $furnace = round((float)($input['furnace_qty'] ?? 0), 3);
+        $furnaceKg = isset($input['furnace_weight_kg']) && (float)$input['furnace_weight_kg'] > 0 ? round((float)$input['furnace_weight_kg'], 3) : null;
         if (!$id) Response::error('Lot id is required.', null, 400);
         if ($minor < 0 || $furnace < 0) Response::error('Quantities cannot be negative.', null, 400);
 
@@ -594,7 +595,7 @@ class RejectionController {
                 ")->execute([
                     $childNo, $lot['lot_number'], $lot['release_id'], $lot['batch_no'], $lot['fg_id'], $lot['item_name'],
                     $lot['source_stage_key'], $lot['source_stage_name'], $lot['defect_reason'], $disp, $q, $lot['avg_weight'],
-                    $disp === 'FURNACE' ? round($q * (float)$lot['avg_weight'], 3) : 0,
+                    $disp === 'FURNACE' ? ($furnaceKg ?? round($q * (float)$lot['avg_weight'], 3)) : 0,
                     $disp === 'MINOR' ? $returnKey : null, $disp === 'MINOR' ? $returnName : null,
                     json_encode($steps, JSON_UNESCAPED_UNICODE), json_encode($history, JSON_UNESCAPED_UNICODE),
                     $by, $remarks, $user['id'] ?? null,

@@ -567,9 +567,13 @@ class PlanningController {
             Response::error('This would send more pieces to the next stage than are pending. Refresh and try again.', null, 400);
         }
 
+        $avgWeight = isset($body['avg_weight']) && (float)$body['avg_weight'] > 0
+            ? round((float)$body['avg_weight'], 4)
+            : (isset($oldTracking['avg_weight']) ? (float)$oldTracking['avg_weight'] : null);
         $trackingPayload = json_encode([
             'stages' => $stages,
             'ready'  => $ready,
+            'avg_weight' => $avgWeight,
             'updated_at' => date('Y-m-d H:i:s')
         ]);
 

@@ -35,7 +35,7 @@ export function Rejections() {
   const [dispFilter, setDispFilter] = useState('PENDING');
   const [processes, setProcesses] = useState([]);
   const [decideLot, setDecideLot] = useState(null);
-  const [decideForm, setDecideForm] = useState({ minor: '0', return_stage_key: '', remarks: '', operator: '' });
+  const [decideForm, setDecideForm] = useState({ minor: '0', return_stage_key: '', remarks: '', operator: '', furnace_kg: '' });
   const [deciding, setDeciding] = useState(false);
   const [routes, setRoutes] = useState({});
   const [search, setSearch] = useState('');
@@ -127,7 +127,7 @@ export function Rejections() {
 
   const openDecide = (lot) => {
     setDecideLot(lot);
-    setDecideForm({ minor: '0', return_stage_key: lot.source_stage_key || stageOptions[0]?.key || '', remarks: '', operator: '' });
+    setDecideForm({ minor: '0', return_stage_key: lot.source_stage_key || stageOptions[0]?.key || '', remarks: '', operator: '', furnace_kg: '' });
   };
 
   const submitDecide = async (e) => {
@@ -148,6 +148,7 @@ export function Rejections() {
         return_stage_name: minor > 0 ? (stage?.name || '') : '',
         remarks: decideForm.remarks,
         operator: decideForm.operator,
+        furnace_weight_kg: furnace > 0 && Number(decideForm.furnace_kg) > 0 ? Number(decideForm.furnace_kg) : undefined,
       });
       success(res?.message || 'Decision saved.');
       setDecideLot(null);
@@ -448,7 +449,18 @@ export function Rejections() {
                     }}
                     className="w-full rounded-xl px-3 py-2 border border-rose-300 text-lg font-bold tabular-nums"
                   />
-                  <p className="text-[11px] text-rose-800/80 mt-1">≈ {(furnace * Number(decideLot.avg_weight || 0)).toFixed(2)} kg scrap</p>
+                  <label htmlFor="dec-kg" className="block text-[11px] font-semibold text-rose-900 mt-2 mb-0.5">Furnace weight (kg)</label>
+                  <input
+                    id="dec-kg"
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    disabled={furnace <= 0}
+                    value={decideForm.furnace_kg}
+                    onChange={(e) => setDecideForm({ ...decideForm, furnace_kg: e.target.value })}
+                    placeholder={`≈ ${(furnace * Number(decideLot.avg_weight || 0)).toFixed(3)}`}
+                    className="w-full rounded-lg px-2.5 py-1.5 border border-rose-300 text-sm font-semibold disabled:opacity-50"
+                  />
                 </div>
               </div>
 
