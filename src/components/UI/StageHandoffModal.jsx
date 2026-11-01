@@ -38,11 +38,12 @@ export function StageHandoffModal({
 
   // Current stage stats: pieces still waiting at this stage
   const stageData = row ? (row.stages ? (row.stages[stageKey] || {}) : (row[stageKey] || {})) : {};
-  const balance = Number(stageData.bal);
-  const currentAvailable = Number(
-    (Number.isFinite(balance) && balance > 0 ? balance : null) ??
-    (stageData.prod_qty || stageData.recd_store || row?.qty_recd_casting || 0)
-  );
+  // Only what is still waiting at this stage can move on. Once a stage's balance is 0 nothing
+  // is left to hand off (never fall back to the stage's original received quantity).
+  const hasBalance = stageData.bal !== undefined && stageData.bal !== null && stageData.bal !== '';
+  const currentAvailable = Math.max(0, hasBalance
+    ? Number(stageData.bal) || 0
+    : Number(stageData.prod_qty || stageData.recd_store || row?.qty_recd_casting || 0));
   const avgWeight = Number(row?.avg_weight) || 0.35;
 
   // Form State
@@ -93,7 +94,7 @@ export function StageHandoffModal({
   if (!isOpen || !row) return null;
 
   const handleGoodChange = (val) => {
-    const g = Math.max(0, Number(val) || 0);
+    const g = Math.min(currentAvailable, Math.max(0, Number(val) || 0));
     setGoodQty(g);
     if (g + rejQty > currentAvailable) {
       const r = Math.max(0, currentAvailable - g);
@@ -103,7 +104,7 @@ export function StageHandoffModal({
   };
 
   const handleRejChange = (val) => {
-    const r = Math.max(0, Number(val) || 0);
+    const r = Math.min(currentAvailable, Math.max(0, Number(val) || 0));
     setRejQty(r);
     setMinorQty((m) => Math.min(m, r));
     if (goodQty + r > currentAvailable) {
@@ -123,7 +124,7 @@ export function StageHandoffModal({
 
   const handleSubmit = (e) => {
     e?.preventDefault?.();
-    if (goodQty + rejQty <= 0) return;
+    if (goodQty + rejQty <= 0 || goodQty + rejQty > currentAvailable) return;
     if (isFinalToReady && goodQty > 0 && !selectedWarehouseId && warehouses.length > 0) return;
 
     // All rejected pieces enter the common rejection pipeline as one lot

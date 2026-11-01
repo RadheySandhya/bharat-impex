@@ -259,6 +259,24 @@ class PermissionService {
     }
 
     /**
+     * How many pieces in a batch's tracking were moved forward beyond what the previous stage
+     * actually released (received - rejected), ignoring reworked pieces returned to a stage.
+     */
+    public static function overflowPieces(array $stages): float {
+        $keys = array_keys(self::stageMap());
+        $over = 0.0;
+        for ($i = 1; $i < count($keys); $i++) {
+            $prev = $stages[$keys[$i - 1]] ?? null;
+            $cur = $stages[$keys[$i]] ?? null;
+            if (!$prev || !$cur) continue;
+            $released = (float)($prev['prod_qty'] ?? 0) - (float)($prev['rejection'] ?? 0);
+            $received = (float)($cur['prod_qty'] ?? 0) - (float)($cur['rework_in'] ?? 0);
+            $over += max(0.0, $received - max(0.0, $released));
+        }
+        return round($over, 3);
+    }
+
+    /**
      * Route-level guard. Each entry: route => [method|'*' => [any-of permission keys]].
      * Routes not listed only require a valid login (shared lookups such as item masters).
      */

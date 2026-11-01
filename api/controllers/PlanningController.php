@@ -562,6 +562,10 @@ class PlanningController {
         if (is_array($stages) && $oldStages) {
             PermissionService::requireStageChangesAllowed($oldStages, $stages);
         }
+        // Never let a save move more pieces forward than a stage released (old over-counts are tolerated, not grown)
+        if (is_array($stages) && PermissionService::overflowPieces($stages) > PermissionService::overflowPieces($oldStages) + 0.0005) {
+            Response::error('This would send more pieces to the next stage than are pending. Refresh and try again.', null, 400);
+        }
 
         $trackingPayload = json_encode([
             'stages' => $stages,

@@ -619,6 +619,11 @@ export function SKUTrackingSheet() {
       warning(`${stgObj.full_name} is not one of your assigned stages.`);
       return;
     }
+    const pendingHere = row.stages?.[stageKey];
+    if (pendingHere && pendingHere.bal !== undefined && Number(pendingHere.bal) <= 0) {
+      warning(`Nothing is pending at ${stgObj?.full_name || 'this stage'} — all pieces were already handed off.`);
+      return;
+    }
     const isCompleted = 
       row.ready?.status === 'Ready FG' || 
       row.ready?.status === 'Completed' || 
@@ -757,7 +762,7 @@ export function SKUTrackingSheet() {
             batch_no: updated.batch_no,
             stages: updated.stages,
             ready: updated.ready
-          }).catch((err) => console.warn('Could not save stages to backend database:', err));
+          }).catch((err) => { warning(`Not saved: ${err.message}`); loadSKUData(stages); });
         }
 
         return updated;
@@ -839,7 +844,7 @@ export function SKUTrackingSheet() {
           batch_no: updated.batch_no,
           stages: updated.stages,
           ready: updated.ready
-        }).catch((err) => console.warn('Could not save stages to backend database:', err));
+        }).catch((err) => { warning(`Not saved: ${err.message}`); loadSKUData(stages); });
       }
       return nextData;
     });
@@ -1298,7 +1303,7 @@ export function SKUTrackingSheet() {
                               let currentActive = stages[0];
                               for (let i = stages.length - 1; i >= 0; i--) {
                                 const stg = row.stages?.[stages[i].key];
-                                if (Number(stg?.bal || stg?.prod_qty || 0) > 0) {
+                                if (Number(stg?.bal || 0) > 0) {
                                   currentActive = stages[i];
                                   break;
                                 }
@@ -1351,13 +1356,6 @@ export function SKUTrackingSheet() {
                               title={`Click to send ${stg.full_name} to next stage`}
                             >
                               {rejQty}
-                              {(Number(stgData.rejection_minor || 0) > 0 || Number(stgData.rejection_furnace || 0) > 0) && (
-                                <div className="text-[9px] font-semibold leading-tight whitespace-nowrap" title="Minor rework / Furnace">
-                                  <span className="text-blue-700">M{Number(stgData.rejection_minor || 0)}</span>
-                                  <span className="text-slate-400"> · </span>
-                                  <span className="text-rose-700">F{Number(stgData.rejection_furnace || 0)}</span>
-                                </div>
-                              )}
                             </td>
                             <td
                               onClick={() => handleOpenHandoff(row, stg.key)}
@@ -1413,7 +1411,7 @@ export function SKUTrackingSheet() {
                                   // Find the furthest stage in the pipeline that currently has quantity
                                   let currentActive = stages[0];
                                   for (let i = stages.length - 1; i >= 0; i--) {
-                                    if (Number(row.stages?.[stages[i].key]?.prod_qty || 0) > 0) {
+                                    if (Number(row.stages?.[stages[i].key]?.bal || 0) > 0) {
                                       currentActive = stages[i];
                                       break;
                                     }
@@ -1520,6 +1518,24 @@ export function SKUTrackingSheet() {
                             });
                           }}
                           className="w-full p-1.5 rounded-lg border border-slate-300 bg-white text-rose-700 font-bold"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-slate-600 text-[11px] block">Pending here (Bal)</label>
+                        <input
+                          type="number"
+                          value={stgData.bal ?? 0}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setEditForm({
+                              ...editForm,
+                              stages: {
+                                ...editForm.stages,
+                                [stg.key]: { ...(editForm.stages?.[stg.key] || {}), bal: val }
+                              }
+                            });
+                          }}
+                          className="w-full p-1.5 rounded-lg border border-slate-300 bg-white text-slate-900 font-bold"
                         />
                       </div>
                     </div>
