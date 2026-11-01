@@ -4,6 +4,13 @@ import App from './App.jsx';
 import './index.css';
 import { initSecurityProtection } from './utils/securityProtection';
 
+// Capture the browser's install prompt as early as possible so an "Install App" button can use it
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  window.__biInstallPrompt = e;
+  window.dispatchEvent(new Event('bi:installable'));
+});
+
 // Initialize Browser DevTools & Inspect Element Blocker
 initSecurityProtection();
 

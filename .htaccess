@@ -26,3 +26,8 @@
     CGIPassAuth On
 </IfModule>
 
+
+<IfModule mod_mime.c>
+    AddType application/manifest+json .webmanifest
+    AddType text/javascript .js
+</IfModule>

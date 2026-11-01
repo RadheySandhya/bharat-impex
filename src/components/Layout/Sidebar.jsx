@@ -3,6 +3,7 @@ import Icon from '../UI/Icon';
 import { useAuth } from '../../context/AuthContext';
 import { canOpenTab, canSettingsSub } from '../../utils/access';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { InstallAppButton } from '../UI/InstallAppButton';
 
 export function Sidebar({ activeTab, setActiveTab, settingsSubTab, setSettingsSubTab, isOpen, setIsOpen, collapsed = false, setCollapsed }) {
   // Desktop-only icon rail; the phone drawer always shows labels
@@ -237,7 +238,11 @@ export function Sidebar({ activeTab, setActiveTab, settingsSubTab, setSettingsSu
         </div>
 
         {/* User Profile & Logout */}
-        <div className="p-3 border-t border-slate-100 bg-slate-50/50">
+        <div className="p-3 border-t border-slate-100 bg-slate-50/50 space-y-2">
+          <InstallAppButton
+            compact={collapsed}
+            className={`w-full py-2 bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 ${collapsed ? 'lg:px-0' : ''}`}
+          />
           <div className={`p-2.5 rounded-xl bg-white border border-slate-200/80 shadow-xs flex items-center justify-between ${collapsed ? 'lg:flex-col lg:gap-2' : ''}`}>
             <div className="flex items-center gap-2.5 overflow-hidden">
               <div className="w-8 h-8 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-black text-slate-700 shrink-0">
