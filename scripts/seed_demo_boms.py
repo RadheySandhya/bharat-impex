@@ -63,6 +63,8 @@ class Api:
                                      method='POST' if body is not None else 'GET')
         req.add_header('Content-Type', 'application/json')
         req.add_header('Accept', 'application/json')
+        # Cloudflare in front of the live site rejects Python's default client signature
+        req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) BharatImpexSeeder/1.0')
         if self.token:
             req.add_header('Authorization', 'Bearer ' + self.token)
         try:
