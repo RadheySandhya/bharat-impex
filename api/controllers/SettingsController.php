@@ -472,6 +472,53 @@ class SettingsController {
         Response::success(null, 'Role deleted.');
     }
 
+    /**
+     * POST settings/factory-reset {confirm: "DELETE ALL DATA", password}
+     * Empties every table except the signed-in admin's account, the company profile, roles and units.
+     * Admin only; requires the typed phrase and the admin's real password (no shortcuts). Irreversible.
+     */
+    public static function factoryReset(): void {
+        $user = Auth::requireAuth();
+        $eff = PermissionService::current();
+        if (!$eff['is_admin']) Response::error('Only an administrator can reset the system.', null, 403);
+
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        if (trim((string)($input['confirm'] ?? '')) !== 'DELETE ALL DATA') {
+            Response::error('Type DELETE ALL DATA exactly to confirm.', null, 400);
+        }
+        $db = Database::getConnection();
+        $hashStmt = $db->prepare("SELECT password_hash FROM users WHERE id = ?");
+        $hashStmt->execute([$user['id']]);
+        if (!Auth::verifyPassword((string)($input['password'] ?? ''), (string)$hashStmt->fetchColumn())) {
+            Response::error('Password is incorrect.', null, 403);
+        }
+
+        $keep = ['users', 'roles', 'units', 'company_settings'];
+        $tables = $db->query("
+            SELECT TABLE_NAME FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'
+        ")->fetchAll(PDO::FETCH_COLUMN);
+
+        $cleared = [];
+        try {
+            $db->exec("SET FOREIGN_KEY_CHECKS = 0");
+            foreach ($tables as $t) {
+                if (in_array($t, $keep, true)) continue;
+                $db->exec("TRUNCATE TABLE `" . str_replace('`', '', $t) . "`");
+                $cleared[] = $t;
+            }
+            $db->prepare("DELETE FROM users WHERE id <> ?")->execute([$user['id']]);
+            $db->prepare("UPDATE users SET stage_access = NULL WHERE id = ?")->execute([$user['id']]);
+            $db->exec("SET FOREIGN_KEY_CHECKS = 1");
+        } catch (Exception $e) {
+            $db->exec("SET FOREIGN_KEY_CHECKS = 1");
+            Response::error('Reset stopped part-way: ' . $e->getMessage(), ['cleared' => $cleared], 500);
+        }
+
+        AuditService::log('FACTORY_RESET', 'SETTINGS', null, null, ['tables_cleared' => count($cleared)]);
+        Response::success(['tables_cleared' => $cleared], 'All data cleared. Only your admin account, company profile, roles and units remain.');
+    }
+
     public static function auditLogs(): void {
         Auth::requireAuth();
         $db = Database::getConnection();

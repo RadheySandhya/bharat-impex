@@ -370,6 +370,7 @@ class PermissionService {
             'settings/roles'               => ['POST' => ['settings.users'], 'DELETE' => ['settings.users']],
             'settings/delete-role'         => ['*' => ['settings.users']],
             'settings/audit-logs'          => ['*' => ['settings.audit']],
+            'settings/factory-reset'       => ['*' => ['settings.users']],
         ];
         if (!isset($rules[$route])) return;
         $rule = $rules[$route];

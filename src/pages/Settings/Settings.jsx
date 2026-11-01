@@ -35,6 +35,7 @@ import Icon from '../../components/UI/Icon';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../services/api';
 import { UsersRoles } from './UsersRoles';
+import { ResetDataPanel } from './ResetDataPanel';
 import { useToast } from '../../context/ToastContext';
 import { MasterCSVImportModal } from '../../components/UI/MasterCSVImportModal';
 import { SubSKUCSVImportModal } from '../../components/UI/SubSKUCSVImportModal';
@@ -1582,6 +1583,7 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
               </div>
             </form>
           </div>
+          <ResetDataPanel />
         </div>
       )}
 

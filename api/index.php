@@ -459,6 +459,9 @@ try {
         case 'settings/delete-role':
             if ($method === 'POST') SettingsController::deleteRole();
             break;
+        case 'settings/factory-reset':
+            if ($method === 'POST') SettingsController::factoryReset();
+            break;
         case 'settings/permission-catalog':
             if ($method === 'GET') SettingsController::permissionCatalog();
             break;

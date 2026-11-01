@@ -507,6 +507,10 @@ export const api = {
       body: JSON.stringify(data),
     }),
     getPermissionCatalog: () => request('/settings/permission-catalog'),
+    factoryReset: (data) => request('/settings/factory-reset', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
     saveRole: (data) => request('/settings/roles', {
       method: 'POST',
       body: JSON.stringify(data),
