@@ -11,14 +11,12 @@ const getApiBase = () => {
     return '/api';
   }
 
-  // If hosted in subfolder /Bharat_Impex/IMS
-  const path = window.location.pathname;
-  if (path.includes('/Bharat_Impex/IMS')) {
-    return '/Bharat_Impex/IMS/api';
-  }
-
-  // Default for root domain or subdomain (e.g. bharat.solveall360.com)
-  return '/api';
+  // Otherwise the API sits next to the app, in whatever folder it is served from:
+  //   localhost/bharat impex stock project/  -> /bharat%20impex%20stock%20project/api
+  //   solveall360.com/Bharat_Impex/IMS/      -> /Bharat_Impex/IMS/api
+  //   bharat.solveall360.com/                -> /api
+  const dir = window.location.pathname.replace(/[^/]*$/, ''); // drop "index.php" etc.
+  return `${dir.replace(/\/+$/, '')}/api`;
 };
 
 const API_BASE = getApiBase();
