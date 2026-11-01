@@ -21,6 +21,7 @@ import { Rejections } from './pages/Rejections/Rejections';
 import { Reports } from './pages/Reports/Reports';
 import { Planning } from './pages/Planning/Planning';
 import { Settings } from './pages/Settings/Settings';
+import { InstallPromptSheet } from './components/UI/InstallPromptSheet';
 import { canOpenTab, canSettingsSub, firstAllowedTab, firstAllowedSettingsSub } from './utils/access';
 
 function AppContent() {
@@ -144,6 +145,7 @@ export default function App() {
       <ToastProvider>
         <DateRangeProvider>
           <AppContent />
+          <InstallPromptSheet />
         </DateRangeProvider>
       </ToastProvider>
     </AuthProvider>
