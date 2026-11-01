@@ -37,6 +37,8 @@ import SearchableSelect from '../../components/UI/SearchableSelect';
 import { triggerDownload } from '../../utils/csvTemplates';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
+import { MobileStageQueue } from './MobileStageQueue';
 
 // Default full sequence fallback if offline
 const DEFAULT_CONFIGURED_STAGES = [
@@ -92,7 +94,9 @@ export function SKUTrackingSheet() {
   const [selectedRow, setSelectedRow] = useState(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [newRowModalOpen, setNewRowModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('sheet'); // 'sheet' or 'mobile_cards'
+  // Phones open the minimal supervisor queue; desktops open the full sheet
+  const [activeTab, setActiveTab] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 768 ? 'mobile_cards' : 'sheet'));
+  const { hasPermission, canStage } = useAuth();
 
   // Stage Handoff modal state
   const [handoffModalOpen, setHandoffModalOpen] = useState(false);
@@ -606,6 +610,15 @@ export function SKUTrackingSheet() {
 
   // Trigger Stage Handoff
   const handleOpenHandoff = (row, stageKey) => {
+    const stgObj = stages.find((s) => s.key === stageKey);
+    if (!hasPermission('sku_tracking.handoff')) {
+      warning('Your role can view SKU Tracking but cannot hand off stages.');
+      return;
+    }
+    if (stgObj && !canStage(stgObj)) {
+      warning(`${stgObj.full_name} is not one of your assigned stages.`);
+      return;
+    }
     const isCompleted = 
       row.ready?.status === 'Ready FG' || 
       row.ready?.status === 'Completed' || 
@@ -759,6 +772,10 @@ export function SKUTrackingSheet() {
 
   // Trigger Full Kitting Modal (Upfront RM Deduction)
   const handleOpenKitting = (row) => {
+    if (!row.rm_deducted && !hasPermission('sku_tracking.kitting')) {
+      warning('Your role is not allowed to do Full Kitting.');
+      return;
+    }
     setKittingBatch({
       batch_no: row.batch_no?.replace(/^#/, ''),
       fg_id: row.fg_id,
@@ -788,6 +805,10 @@ export function SKUTrackingSheet() {
 
   // Handle open edit
   const openEdit = (row) => {
+    if (!hasPermission('sku_tracking.edit')) {
+      warning('Your role is not allowed to edit batch figures.');
+      return;
+    }
     setSelectedRow(row);
     setEditForm(JSON.parse(JSON.stringify(row)));
     setEditModalOpen(true);
@@ -923,7 +944,11 @@ export function SKUTrackingSheet() {
   };
 
   // Filter column visibility
+  const myStages = stages.filter((s) => canStage(s));
+
   const isStageVisible = (stageKey) => {
+    const stg = stages.find((s) => s.key === stageKey);
+    if (stg && !canStage(stg)) return false; // stages outside this user's assignment stay hidden
     if (selectedStageFilter === 'ALL') return true;
     return selectedStageFilter === stageKey;
   };
@@ -946,8 +971,9 @@ export function SKUTrackingSheet() {
                   {stages.length} CONFIGURED STAGES
                 </span>
               </div>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">
-                Dynamic Manufacturing Route: {stages.map((s) => s.full_name).join(' → ')} → Ready FG
+              <p className="hidden sm:block text-xs text-slate-500 font-medium mt-0.5">
+                {myStages.length < stages.length ? 'Your stages: ' : 'Dynamic Manufacturing Route: '}
+                {myStages.map((s) => s.full_name).join(' → ')}{myStages.length === stages.length ? ' → Ready FG' : ''}
               </p>
             </div>
           </div>
@@ -968,21 +994,21 @@ export function SKUTrackingSheet() {
             <span>Sync Planning</span>
           </button>
 
-          <button
+          {hasPermission('sku_tracking.edit') && <button
             onClick={() => setNewRowModalOpen(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
           >
             <Icon name="plus" size="sm" ariaHidden={true} />
             <span>New SKU Batch</span>
-          </button>
+          </button>}
 
-          <button
+          {hasPermission('sku_tracking.export') && <button
             onClick={exportToCSV}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold border border-slate-300 shadow-xs transition-colors"
           >
             <Download className="w-3.5 h-3.5 text-slate-600" />
             <span>Export CSV</span>
-          </button>
+          </button>}
 
           {/* View toggle for mobile/desktop */}
           <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
@@ -1004,14 +1030,14 @@ export function SKUTrackingSheet() {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Mobile Cards
+              My Queue
             </button>
           </div>
         </div>
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <div className={`bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs flex-col lg:flex-row lg:items-center justify-between gap-3 ${activeTab === 'sheet' ? 'flex' : 'hidden'}`}>
         <div className="flex items-center gap-2.5 flex-1 flex-wrap sm:flex-nowrap">
           <div className="relative flex-1 min-w-[200px] max-w-md">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1095,7 +1121,7 @@ export function SKUTrackingSheet() {
             All Stages
           </button>
 
-          {stages.map((stg) => (
+          {myStages.map((stg) => (
             <button
               key={stg.key}
               onClick={() => setSelectedStageFilter(stg.key)}
@@ -1424,114 +1450,15 @@ export function SKUTrackingSheet() {
           </div>
         </div>
       ) : (
-        /* MOBILE CARDS VIEW (Dynamic Stepper) */
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {filteredData.map((row, idx) => {
-            const isRowCompleted = isBatchCompleted(row, stages);
-            const prevRow = idx > 0 ? filteredData[idx - 1] : null;
-            const isFirstCompleted = isRowCompleted && (!prevRow || !isBatchCompleted(prevRow, stages));
-
-            return (
-              <React.Fragment key={row.id}>
-                {isFirstCompleted && statusFilter === 'ALL' && pendingCount > 0 && (
-                  <div className="col-span-full py-2.5 px-3.5 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-between text-xs font-bold text-slate-700">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span>Completed Batches (In Ready FG Stock)</span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                        {completedCount}
-                      </span>
-                    </div>
-                    <span className="text-[10px] text-slate-500 font-normal">Sorted to bottom</span>
-                  </div>
-                )}
-                <div
-                  className={`border rounded-2xl p-4 shadow-xs space-y-3 ${
-                    isRowCompleted ? 'bg-slate-50/80 border-slate-200' : 'bg-white border-slate-200'
-                  }`}
-                >
-              {/* Header */}
-              <div className="flex items-start justify-between">
-                <div>
-                  <span className="text-[10px] font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
-                    BATCH #{row.batch_no} • {row.casting_date}
-                  </span>
-                  <h3 className="font-bold text-slate-900 text-sm mt-1 leading-snug">{row.item_name}</h3>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {(() => {
-                    const isCompleted = 
-                      row.ready?.status === 'Ready FG' || 
-                      row.ready?.status === 'Completed' || 
-                      (Number(row.ready?.stock_qty || 0) > 0 && row.ready?.status !== 'In Production');
-
-                    if (isCompleted) {
-                      return (
-                        <span 
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold shadow-xs select-none"
-                          title="Batch fully processed and deposited in Ready FG Stock"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span>Ready in FG</span>
-                        </span>
-                      );
-                    }
-
-                    return (
-                      <button
-                        onClick={() => {
-                          const currentActive = stages.find((s) => (row.stages?.[s.key]?.prod_qty || 0) > 0) || stages[0];
-                          handleOpenHandoff(row, currentActive.key);
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
-                      >
-                        <span>Send Next</span>
-                        <ArrowRight className="w-3 h-3" />
-                      </button>
-                    );
-                  })()}
-                  <button
-                    onClick={() => openEdit(row)}
-                    className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs transition-colors cursor-pointer"
-                    title="Manual Edit"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Dynamic Progress Stepper Bar */}
-              <div className={`grid gap-1 text-center py-1 bg-slate-50 rounded-xl p-2 border border-slate-100 text-[10px] ${
-                stages.length <= 4 ? 'grid-cols-4' : 'grid-cols-5'
-              }`}>
-                {stages.map((stg) => {
-                  const stgData = row.stages?.[stg.key] || {};
-                  return (
-                    <button
-                      key={stg.key}
-                      type="button"
-                      onClick={() => handleOpenHandoff(row, stg.key)}
-                      className={`${stg.bg} hover:opacity-80 ${stg.text} rounded p-1 font-semibold transition-colors cursor-pointer text-center`}
-                      title={`Click to Send ${stg.full_name}`}
-                    >
-                      <div className="text-[9px] truncate">{stg.name}</div>
-                      <div className="text-xs font-bold">{stgData.prod_qty || 0}</div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Summary Stats */}
-              <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 text-slate-600">
-                <span>Weight: <strong className="text-slate-900">{Number(row.avg_weight || 0.35).toFixed(3)} kg</strong></span>
-                <span>Total Rejection: <strong className="text-rose-600">{row.ready?.total_rejection || 0} pcs</strong></span>
-                <span>Ready Stock: <strong className="text-emerald-700">{row.ready?.stock_qty || 0} pcs</strong></span>
-              </div>
-            </div>
-          </React.Fragment>
-        );
-      })}
-    </div>
+        /* MOBILE SUPERVISOR QUEUE — only my stages, one action */
+        <MobileStageQueue
+          data={data}
+          stages={myStages}
+          canHandoff={hasPermission('sku_tracking.handoff')}
+          onHandoff={handleOpenHandoff}
+          onRefresh={() => loadSKUData(stages)}
+          loading={loading}
+        />
       )}
 
       {/* QUICK STAGE EDIT MODAL */}

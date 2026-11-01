@@ -288,6 +288,10 @@ class RejectionController {
         $splits = $input['splits'] ?? [];
         if ($batchNo === '') Response::error('Batch number is required.', null, 400);
         if (!is_array($splits) || !$splits) Response::error('At least one rejection split is required.', null, 400);
+        $srcStage = trim((string)($input['source_stage_key'] ?? ''));
+        if ($srcStage !== '' && !PermissionService::canStageKey($srcStage)) {
+            Response::error('You can only log rejections for your assigned stages.', null, 403);
+        }
 
         $avgWeight = max(0.0, (float)($input['avg_weight'] ?? 0));
         $operator = trim((string)($input['operator'] ?? '')) ?: ($user['full_name'] ?? 'Supervisor');

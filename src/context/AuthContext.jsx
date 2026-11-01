@@ -64,20 +64,46 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('bharat_impex_user');
   };
 
+  const isAdmin = (() => {
+    if (!user) return false;
+    if (user.is_admin) return true;
+    const roleCode = String(user.role_code || '').toUpperCase();
+    return roleCode === 'ADMIN' || roleCode === 'SUPERADMIN';
+  })();
+
+  // Effective permission keys ("module.action") come from the server on login / auth/me
   const hasPermission = (permission) => {
     if (!user) return false;
-    // Admin user has complete unrestricted access to all modules, actions, and features
-    const roleCode = String(user.role_code || '').toUpperCase();
-    const roleName = String(user.role_name || '').toUpperCase();
-    if (roleCode === 'ADMIN' || roleCode === 'SUPERADMIN' || roleName.includes('ADMIN') || user.is_admin) {
-      return true;
-    }
-    if (user.permissions?.includes('ALL') || user.permissions?.includes('*')) return true;
-    return user.permissions?.includes(permission);
+    if (isAdmin) return true;
+    const perms = Array.isArray(user.permissions) ? user.permissions : [];
+    if (perms.includes('ALL') || perms.includes('*')) return true;
+    return perms.includes(permission);
+  };
+
+  const hasAny = (list = []) => list.some((p) => hasPermission(p));
+
+  // SKU-tracking stage access: stage object with `id` = process id (or a raw process id)
+  const canStage = (stage) => {
+    if (!user) return false;
+    if (isAdmin) return true;
+    const allowed = user.allowed_stages;
+    if (allowed === undefined || allowed === null || allowed === 'ALL') return true;
+    const id = typeof stage === 'object' && stage !== null ? stage.id : stage;
+    return Array.isArray(allowed) && allowed.map(Number).includes(Number(id));
+  };
+
+  const refreshUser = async () => {
+    try {
+      const res = await api.auth.me();
+      if (res?.data) {
+        setUser(res.data);
+        localStorage.setItem('bharat_impex_user', JSON.stringify(res.data));
+      }
+    } catch (e) {}
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout, hasPermission, isAuthenticated: !!token }}>
+    <AuthContext.Provider value={{ user, token, loading, login, logout, hasPermission, hasAny, canStage, isAdmin, refreshUser, isAuthenticated: !!token }}>
       {children}
     </AuthContext.Provider>
   );

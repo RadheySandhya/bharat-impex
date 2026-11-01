@@ -449,6 +449,9 @@ WHERE s.active = 1 AND fg.active = 1 AND fg.deleted_at IS NULL
                 if (!in_array($type, ['IN', 'OUT'])) {
                     throw new InvalidArgumentException("Row #" . ($index + 1) . ": Invalid type '{$type}'. Must be IN or OUT.");
                 }
+                if (!PermissionService::can($type === 'IN' ? 'in_out.purchase' : 'in_out.sale')) {
+                    throw new InvalidArgumentException("Row #" . ($index + 1) . ": your role is not allowed to save " . ($type === 'IN' ? 'IN (purchase)' : 'OUT (sales)') . " entries.");
+                }
 
                 $partyName = trim($row['party_name'] ?? '');
                 if (!$partyName) {

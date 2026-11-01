@@ -265,19 +265,33 @@ class SettingsController {
     // Users & Roles
     public static function users(): void {
         Auth::requireAuth();
+        PermissionService::ensureSchema();
         $db = Database::getConnection();
         $users = $db->query("
             SELECT u.id, u.username, u.email, u.full_name, u.phone, u.role_id, u.active, u.last_login_at, u.created_at,
-                   r.role_code, r.role_name
+                   u.stage_access, r.role_code, r.role_name
             FROM users u
             JOIN roles r ON u.role_id = r.id
             ORDER BY u.id ASC
         ")->fetchAll();
+        foreach ($users as &$u) {
+            $list = $u['stage_access'] !== null && $u['stage_access'] !== '' ? json_decode($u['stage_access'], true) : null;
+            $u['stage_access'] = is_array($list) ? $list : null;
+        }
+        unset($u);
         Response::success($users);
+    }
+
+    private static function isAdminRole(PDO $db, int $roleId): bool {
+        $stmt = $db->prepare("SELECT role_code, role_name, permissions FROM roles WHERE id = ?");
+        $stmt->execute([$roleId]);
+        $r = $stmt->fetch();
+        return $r ? PermissionService::isAdminUser($r) : false;
     }
 
     public static function saveUser(): void {
         $user = Auth::requireAuth();
+        PermissionService::ensureSchema();
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
 
         $id = (int)($input['id'] ?? 0);
@@ -289,37 +303,173 @@ class SettingsController {
         $password = $input['password'] ?? '';
         $active = isset($input['active']) ? (int)$input['active'] : 1;
 
+        // Personal stage list: null = follow the role, ['ALL'] = every stage, [ids] = only those stages
+        $stageAccess = null;
+        if (array_key_exists('stage_access', $input) && is_array($input['stage_access'])) {
+            $sa = $input['stage_access'];
+            $stageAccess = in_array('ALL', $sa, true)
+                ? json_encode(['ALL'])
+                : json_encode(array_values(array_unique(array_map('intval', $sa))));
+        }
+
         if (empty($username) || empty($email) || empty($fullName)) {
             Response::error('Username, Email and Full Name are required.', null, 400);
         }
 
         $db = Database::getConnection();
+
+        $roleChk = $db->prepare("SELECT id FROM roles WHERE id = ?");
+        $roleChk->execute([$roleId]);
+        if (!$roleChk->fetch()) Response::error('Selected role does not exist.', null, 400);
+
+        $dup = $db->prepare("SELECT id FROM users WHERE (username = ? OR email = ?) AND id <> ?");
+        $dup->execute([$username, $email, $id]);
+        if ($dup->fetch()) Response::error('Another user already has this username or email.', null, 400);
+
+        // Never remove the last active administrator
+        if ($id) {
+            $cur = $db->prepare("SELECT role_id, active FROM users WHERE id = ?");
+            $cur->execute([$id]);
+            $before = $cur->fetch();
+            if ($before && (int)$before['active'] === 1 && self::isAdminRole($db, (int)$before['role_id'])
+                && (!$active || !self::isAdminRole($db, $roleId))) {
+                $admins = 0;
+                foreach ($db->query("SELECT role_id FROM users WHERE active = 1")->fetchAll() as $row) {
+                    if (self::isAdminRole($db, (int)$row['role_id'])) $admins++;
+                }
+                if ($admins <= 1) Response::error('This is the last active administrator. Make another user admin first.', null, 400);
+            }
+        }
+
         if ($id) {
             if (!empty($password)) {
                 $hash = Auth::hashPassword($password);
-                $stmt = $db->prepare("UPDATE users SET username = ?, email = ?, full_name = ?, phone = ?, role_id = ?, active = ?, password_hash = ?, updated_at = NOW() WHERE id = ?");
-                $stmt->execute([$username, $email, $fullName, $phone, $roleId, $active, $hash, $id]);
+                $stmt = $db->prepare("UPDATE users SET username = ?, email = ?, full_name = ?, phone = ?, role_id = ?, stage_access = ?, active = ?, password_hash = ?, updated_at = NOW() WHERE id = ?");
+                $stmt->execute([$username, $email, $fullName, $phone, $roleId, $stageAccess, $active, $hash, $id]);
             } else {
-                $stmt = $db->prepare("UPDATE users SET username = ?, email = ?, full_name = ?, phone = ?, role_id = ?, active = ?, updated_at = NOW() WHERE id = ?");
-                $stmt->execute([$username, $email, $fullName, $phone, $roleId, $active, $id]);
+                $stmt = $db->prepare("UPDATE users SET username = ?, email = ?, full_name = ?, phone = ?, role_id = ?, stage_access = ?, active = ?, updated_at = NOW() WHERE id = ?");
+                $stmt->execute([$username, $email, $fullName, $phone, $roleId, $stageAccess, $active, $id]);
             }
         } else {
             if (empty($password)) {
                 $password = 'welcome123';
             }
             $hash = Auth::hashPassword($password);
-            $stmt = $db->prepare("INSERT INTO users (username, email, password_hash, full_name, phone, role_id, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
-            $stmt->execute([$username, $email, $hash, $fullName, $phone, $roleId, $active]);
+            $stmt = $db->prepare("INSERT INTO users (username, email, password_hash, full_name, phone, role_id, stage_access, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+            $stmt->execute([$username, $email, $hash, $fullName, $phone, $roleId, $stageAccess, $active]);
         }
 
+        AuditService::log($id ? 'USER_UPDATED' : 'USER_CREATED', 'SETTINGS', $username, null, ['role_id' => $roleId, 'stage_access' => $stageAccess, 'by' => $user['username'] ?? null]);
         Response::success(null, 'User saved successfully.');
     }
 
     public static function roles(): void {
         Auth::requireAuth();
         $db = Database::getConnection();
-        $roles = $db->query("SELECT * FROM roles ORDER BY id ASC")->fetchAll();
+        $roles = $db->query("
+            SELECT r.*, (SELECT COUNT(*) FROM users u WHERE u.role_id = r.id) AS user_count
+            FROM roles r ORDER BY r.id ASC
+        ")->fetchAll();
+        foreach ($roles as &$r) {
+            $raw = json_decode($r['permissions'] ?? '[]', true) ?: [];
+            $eff = PermissionService::effective($r);
+            $r['permissions'] = $raw;
+            $r['is_admin'] = $eff['is_admin'];
+            // Expanded keys so legacy roles show ticked boxes in the editor
+            $r['effective_permissions'] = $eff['permissions'];
+            $r['effective_stages'] = $eff['stages'];
+        }
+        unset($r);
         Response::success($roles);
+    }
+
+    /** Catalog of modules/actions plus the production stages that can be assigned. */
+    public static function permissionCatalog(): void {
+        Auth::requireAuth();
+        $db = Database::getConnection();
+        $stages = [];
+        foreach ($db->query("SELECT id, process_code, process_name FROM processes WHERE active = 1 ORDER BY sequence ASC, id ASC")->fetchAll() as $p) {
+            $stages[] = ['id' => (int)$p['id'], 'key' => PermissionService::stageKeyFor($p), 'name' => $p['process_name']];
+        }
+        Response::success(['modules' => PermissionService::catalog(), 'stages' => $stages]);
+    }
+
+    /** POST settings/roles {id?, role_code, role_name, description, permissions: [...keys], stages: 'ALL' | [ids]} */
+    public static function saveRole(): void {
+        $user = Auth::requireAuth();
+        $db = Database::getConnection();
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+
+        $id = (int)($input['id'] ?? 0);
+        $name = trim((string)($input['role_name'] ?? ''));
+        $code = strtoupper(preg_replace('/[^A-Za-z0-9_]+/', '_', trim((string)($input['role_code'] ?? ''))));
+        $desc = trim((string)($input['description'] ?? ''));
+        if ($name === '') Response::error('Role name is required.', null, 400);
+        if ($code === '') $code = strtoupper(preg_replace('/[^A-Za-z0-9]+/', '_', $name));
+
+        if ($id) {
+            $cur = $db->prepare("SELECT * FROM roles WHERE id = ?");
+            $cur->execute([$id]);
+            $existing = $cur->fetch();
+            if (!$existing) Response::error('Role not found.', null, 404);
+            if (PermissionService::isAdminUser($existing)) {
+                Response::error('The administrator role always has full access and cannot be changed.', null, 400);
+            }
+        }
+
+        $valid = array_flip(PermissionService::allKeys());
+        $perms = [];
+        foreach (($input['permissions'] ?? []) as $k) {
+            if (isset($valid[$k])) $perms[] = $k;
+        }
+        // Ticking any action implies View for that module
+        foreach ($perms as $k) {
+            [$mod] = explode('.', $k, 2);
+            if (isset($valid["{$mod}.view"]) && !in_array("{$mod}.view", $perms, true)) $perms[] = "{$mod}.view";
+        }
+        $stages = $input['stages'] ?? 'ALL';
+        if ($stages === 'ALL' || (is_array($stages) && in_array('ALL', $stages, true))) {
+            $perms[] = 'sku_tracking.stage.all';
+        } elseif (is_array($stages)) {
+            foreach (array_unique(array_map('intval', $stages)) as $sid) {
+                if ($sid > 0) $perms[] = "sku_tracking.stage.{$sid}";
+            }
+        }
+        $perms = array_values(array_unique($perms));
+
+        $dup = $db->prepare("SELECT id FROM roles WHERE role_code = ? AND id <> ?");
+        $dup->execute([$code, $id]);
+        if ($dup->fetch()) Response::error("Role code {$code} already exists.", null, 400);
+
+        $json = json_encode($perms);
+        if ($id) {
+            $db->prepare("UPDATE roles SET role_code = ?, role_name = ?, description = ?, permissions = ? WHERE id = ?")
+               ->execute([$code, $name, $desc, $json, $id]);
+        } else {
+            $db->prepare("INSERT INTO roles (role_code, role_name, description, permissions) VALUES (?, ?, ?, ?)")
+               ->execute([$code, $name, $desc, $json]);
+            $id = (int)$db->lastInsertId();
+        }
+        AuditService::log('ROLE_SAVED', 'SETTINGS', $code, null, ['permissions' => $perms, 'by' => $user['username'] ?? null]);
+        Response::success(['id' => $id], 'Role saved. Users with this role get the new access on their next page load.');
+    }
+
+    public static function deleteRole(): void {
+        Auth::requireAuth();
+        $db = Database::getConnection();
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id = (int)($input['id'] ?? ($_GET['id'] ?? 0));
+        $cur = $db->prepare("SELECT * FROM roles WHERE id = ?");
+        $cur->execute([$id]);
+        $role = $cur->fetch();
+        if (!$role) Response::error('Role not found.', null, 404);
+        if (PermissionService::isAdminUser($role)) Response::error('The administrator role cannot be deleted.', null, 400);
+        $cnt = $db->prepare("SELECT COUNT(*) FROM users WHERE role_id = ?");
+        $cnt->execute([$id]);
+        if ((int)$cnt->fetchColumn() > 0) Response::error('Move the users of this role to another role before deleting it.', null, 400);
+        $db->prepare("DELETE FROM roles WHERE id = ?")->execute([$id]);
+        AuditService::log('ROLE_DELETED', 'SETTINGS', $role['role_code'], null, null);
+        Response::success(null, 'Role deleted.');
     }
 
     public static function auditLogs(): void {

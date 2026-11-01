@@ -22,6 +22,7 @@ import { IMSTriNagarMaster } from './IMSTriNagarMaster';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
 
 export function Inventory() {
   const [activeSubTab, setActiveSubTab] = useState('ims_master'); // 'ims_master', 'stock', 'ledger'
@@ -84,6 +85,7 @@ export function Inventory() {
   });
 
   const { success, error } = useToast();
+  const { hasPermission } = useAuth();
 
   // Stock rows of the selected source godown (only items that actually have stock there)
   const sourceStockOptions = React.useMemo(() => {
@@ -500,7 +502,7 @@ export function Inventory() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
+          {hasPermission('inventory.bulk') && <button
             type="button"
             onClick={() => setIsBulkModalOpen(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300 shadow-xs transition-colors cursor-pointer"
@@ -508,34 +510,34 @@ export function Inventory() {
           >
             <Icon name="upload" size="xs" ariaHidden={true} />
             <span>Bulk Stock Setup (RM & FG)</span>
-          </button>
+          </button>}
 
-          <button
+          {hasPermission('inventory.opening') && <button
             type="button"
             onClick={() => setIsOpeningModalOpen(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold border border-slate-200 shadow-xs transition-colors cursor-pointer"
           >
             <Icon name="plus" size="xs" ariaHidden={true} />
             <span>Opening Stock</span>
-          </button>
+          </button>}
 
-          <button
+          {hasPermission('inventory.transfer') && <button
             type="button"
             onClick={() => setIsTransferModalOpen(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold border border-slate-200 shadow-xs transition-colors cursor-pointer"
           >
             <Icon name="transfer" size="xs" className="text-slate-700" ariaHidden={true} />
             <span>Warehouse Transfer</span>
-          </button>
+          </button>}
 
-          <button
+          {hasPermission('inventory.adjust') && <button
             type="button"
             onClick={() => setIsAdjustModalOpen(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
           >
             <Icon name="sliders" size="xs" ariaHidden={true} />
             <span>Stock Adjustment</span>
-          </button>
+          </button>}
         </div>
       </div>
 

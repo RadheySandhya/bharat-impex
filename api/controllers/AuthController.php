@@ -47,7 +47,7 @@ class AuthController {
         ]);
 
         unset($user['password_hash']);
-        $user['permissions'] = json_decode($user['permissions'] ?? '[]', true);
+        $user = self::withAccess($user);
 
         AuditService::log('LOGIN_SUCCESS', 'AUTH', (string)$user['id'], null, ['user' => $user['username']]);
 
@@ -59,6 +59,17 @@ class AuthController {
 
     public static function me(): void {
         $user = Auth::requireAuth();
-        Response::success($user);
+        Response::success(self::withAccess($user));
+    }
+
+    /** Attach the effective permission keys, admin flag and allowed stages the UI should use. */
+    private static function withAccess(array $user): array {
+        $eff = PermissionService::effective($user);
+        $user['role_permissions'] = is_array($user['permissions'] ?? null) ? $user['permissions'] : (json_decode($user['permissions'] ?? '[]', true) ?: []);
+        $user['permissions'] = $eff['permissions'];
+        $user['is_admin'] = $eff['is_admin'];
+        $user['allowed_stages'] = $eff['stages'];
+        unset($user['stage_access']);
+        return $user;
     }
 }

@@ -21,11 +21,25 @@ import { Rejections } from './pages/Rejections/Rejections';
 import { Reports } from './pages/Reports/Reports';
 import { Planning } from './pages/Planning/Planning';
 import { Settings } from './pages/Settings/Settings';
+import { canOpenTab, canSettingsSub, firstAllowedTab, firstAllowedSettingsSub } from './utils/access';
 
 function AppContent() {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, hasPermission, user } = useAuth();
   const [activeTab, setActiveTab] = useState('sku_tracker');
   const [settingsSubTab, setSettingsSubTab] = useState('raw_materials');
+
+  // Keep the user on screens their role allows
+  React.useEffect(() => {
+    if (!isAuthenticated || !user) return;
+    if (!canOpenTab(activeTab, hasPermission)) {
+      const next = firstAllowedTab(hasPermission);
+      if (next && next !== activeTab) setActiveTab(next);
+    }
+    if (activeTab === 'settings' && !canSettingsSub(settingsSubTab, hasPermission)) {
+      const sub = firstAllowedSettingsSub(hasPermission);
+      if (sub) setSettingsSubTab(sub);
+    }
+  }, [activeTab, settingsSubTab, isAuthenticated, user]);
 
   // Flush legacy demo rework queue if present
   React.useEffect(() => {
@@ -50,6 +64,14 @@ function AppContent() {
   }
 
   const renderActiveTab = () => {
+    if (!canOpenTab(activeTab, hasPermission)) {
+      return (
+        <div className="max-w-md mx-auto mt-16 text-center bg-white border border-slate-200 rounded-2xl p-8">
+          <p className="font-bold text-slate-900">No screens assigned</p>
+          <p className="text-xs text-slate-500 mt-1">Your role has no access yet. Ask the admin to tick permissions for your role in Users &amp; Roles.</p>
+        </div>
+      );
+    }
     switch (activeTab) {
       case 'dashboard':
         return <Dashboard setActiveTab={setActiveTab} />;

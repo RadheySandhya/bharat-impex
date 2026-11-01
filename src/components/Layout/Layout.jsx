@@ -7,6 +7,13 @@ import { QuickActionModal } from '../UI/QuickActionModal';
 export function Layout({ children, activeTab, setActiveTab, settingsSubTab, setSettingsSubTab }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [quickActionOpen, setQuickActionOpen] = useState(false);
+  const [collapsed, setCollapsedState] = useState(() => {
+    try { return localStorage.getItem('bharat_sidebar_collapsed') === '1'; } catch (e) { return false; }
+  });
+  const setCollapsed = (v) => {
+    setCollapsedState(v);
+    try { localStorage.setItem('bharat_sidebar_collapsed', v ? '1' : '0'); } catch (e) {}
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
@@ -19,10 +26,12 @@ export function Layout({ children, activeTab, setActiveTab, settingsSubTab, setS
           setSettingsSubTab={setSettingsSubTab}
           isOpen={sidebarOpen}
           setIsOpen={setSidebarOpen}
+          collapsed={collapsed}
+          setCollapsed={setCollapsed}
         />
 
         {/* Main Content Area */}
-        <div className="flex-1 flex flex-col min-w-0 lg:pl-72 pb-16 lg:pb-0">
+        <div className={`flex-1 flex flex-col min-w-0 ${collapsed ? 'lg:pl-[76px]' : 'lg:pl-72'} transition-[padding] duration-200 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0`}>
           <Navbar
             activeTab={activeTab}
             setActiveTab={setActiveTab}
@@ -39,7 +48,7 @@ export function Layout({ children, activeTab, setActiveTab, settingsSubTab, setS
       <MobileBottomNav
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        onQuickActionOpen={() => setQuickActionOpen(true)}
+        onMenuOpen={() => setSidebarOpen(true)}
       />
 
       {/* Quick Action Modal (FAB) */}

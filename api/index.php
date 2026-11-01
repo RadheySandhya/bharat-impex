@@ -26,6 +26,7 @@ require_once __DIR__ . '/core/Response.php';
 require_once __DIR__ . '/core/Auth.php';
 
 require_once __DIR__ . '/services/AuditService.php';
+require_once __DIR__ . '/services/PermissionService.php';
 require_once __DIR__ . '/services/InventoryService.php';
 require_once __DIR__ . '/services/BOMService.php';
 require_once __DIR__ . '/services/ProductionService.php';
@@ -69,6 +70,9 @@ try {
     if ($route !== '' && $route !== 'health') {
         InventoryService::healStockTable();
     }
+
+    // Role / user permission check for the requested endpoint (admins pass everything)
+    PermissionService::guard($route, $method);
 
     switch ($route) {
         // Health / Status
@@ -446,6 +450,14 @@ try {
             break;
         case 'settings/roles':
             if ($method === 'GET') SettingsController::roles();
+            elseif ($method === 'POST') SettingsController::saveRole();
+            elseif ($method === 'DELETE') SettingsController::deleteRole();
+            break;
+        case 'settings/delete-role':
+            if ($method === 'POST') SettingsController::deleteRole();
+            break;
+        case 'settings/permission-catalog':
+            if ($method === 'GET') SettingsController::permissionCatalog();
             break;
         case 'settings/audit-logs':
             if ($method === 'GET') SettingsController::auditLogs();

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Plus, Trash2, Save, RefreshCw, Sparkles, Flame, Wrench, ArrowRight } from 'lucide-react';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
 
 const CARD_W = 220;
 const CARD_H = 96;
@@ -73,6 +74,8 @@ export function RejectionProcessFlow() {
   const dragOffset = useRef({ x: 0, y: 0 });
   const canvasRef = useRef(null);
   const { success, error, warning } = useToast();
+  const { hasPermission } = useAuth();
+  const canEdit = hasPermission('production_process.edit');
 
   const meta = ROUTE_META[routeType];
 
@@ -263,7 +266,8 @@ export function RejectionProcessFlow() {
           <button
             type="button"
             onClick={save}
-            disabled={saving || loading}
+            disabled={saving || loading || !canEdit}
+            title={canEdit ? 'Save route' : 'Your role can view but not edit process maps'}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-extrabold text-white cursor-pointer disabled:opacity-60 ${isDirty ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-900 hover:bg-slate-800'}`}
           >
             <Save className="w-3.5 h-3.5" /> {saving ? 'Saving...' : 'Save Route'}

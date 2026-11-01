@@ -1,87 +1,51 @@
 import React from 'react';
 import Icon from '../UI/Icon';
+import { useAuth } from '../../context/AuthContext';
+import { canOpenTab } from '../../utils/access';
 
-export function MobileBottomNav({ activeTab, setActiveTab, onQuickActionOpen }) {
+// Most useful screens first; each user sees only what their role opens (max 4 + Menu)
+const CANDIDATES = [
+  { id: 'sku_tracker', label: 'Tracking', icon: 'filespreadsheet' },
+  { id: 'rejections', label: 'Rejection', icon: 'circlex' },
+  { id: 'inventory', label: 'Stock', icon: 'boxes' },
+  { id: 'in_out', label: 'In / Out', icon: 'in_out' },
+  { id: 'planning', label: 'Planning', icon: 'calendar' },
+  { id: 'dashboard', label: 'Home', icon: 'dashboard' },
+];
+
+export function MobileBottomNav({ activeTab, setActiveTab, onMenuOpen }) {
+  const { hasPermission } = useAuth();
+  const items = CANDIDATES.filter((c) => canOpenTab(c.id, hasPermission)).slice(0, 4);
+
+  const Item = ({ id, label, icon, onClick, active }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-current={active ? 'page' : undefined}
+      className={`flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-2xl cursor-pointer transition-transform duration-100 active:scale-90 motion-reduce:active:scale-100 ${
+        active ? 'text-blue-600' : 'text-slate-500'
+      }`}
+    >
+      <Icon name={icon} size="lg" strokeWidth={active ? 2.4 : 1.9} ariaHidden={true} />
+      <span className={`text-[10px] leading-none truncate max-w-full ${active ? 'font-semibold' : 'font-medium'}`}>{label}</span>
+    </button>
+  );
+
   return (
-    <>
-      {/* Modern Docked Bottom Navigation Bar */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-xl border-t border-slate-200/90 shadow-2xl px-3 py-1.5 flex items-center justify-around">
-        {/* Left Item 1: Home */}
-        <button
-          type="button"
-          onClick={() => setActiveTab('dashboard')}
-          aria-label="Dashboard Home"
-          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-colors cursor-pointer ${
-            activeTab === 'dashboard'
-              ? 'text-blue-600 font-bold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-        >
-          <Icon name="dashboard" size="lg" strokeWidth={activeTab === 'dashboard' ? 2.5 : 2} ariaHidden={true} />
-          <span className="text-[10px] mt-0.5">Home</span>
-        </button>
-
-        {/* Left Item 2: Planning */}
-        <button
-          type="button"
-          onClick={() => setActiveTab('planning')}
-          aria-label="Production Planning"
-          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-colors cursor-pointer ${
-            activeTab === 'planning'
-              ? 'text-blue-600 font-bold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-        >
-          <Icon name="calendar" size="lg" strokeWidth={activeTab === 'planning' ? 2.5 : 2} ariaHidden={true} />
-          <span className="text-[10px] mt-0.5">Planning</span>
-        </button>
-
-        {/* CENTER FLOATING ACTION BUTTON (FAB) */}
-        <div className="relative -top-4">
-          <button
-            type="button"
-            onClick={onQuickActionOpen}
-            aria-label="Quick Action"
-            className="w-13 h-13 rounded-full bg-slate-900 hover:bg-slate-800 text-white shadow-xl shadow-slate-900/30 flex items-center justify-center transition-all hover:scale-105 active:scale-95 border-4 border-white cursor-pointer"
-            title="Quick Action"
-          >
-            <Icon name="plus" size="xl" strokeWidth={2.5} ariaHidden={true} />
-          </button>
-        </div>
-
-        {/* Right Item 1: SKU Sheet */}
-        <button
-          type="button"
-          onClick={() => setActiveTab('sku_tracker')}
-          aria-label="SKU Live Sheet"
-          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-colors cursor-pointer ${
-            activeTab === 'sku_tracker'
-              ? 'text-blue-600 font-bold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-        >
-          <Icon name="filespreadsheet" size="lg" strokeWidth={activeTab === 'sku_tracker' ? 2.5 : 2} ariaHidden={true} />
-          <span className="text-[10px] mt-0.5">SKU Sheet</span>
-        </button>
-
-        {/* Right Item 2: Stock */}
-        <button
-          type="button"
-          onClick={() => setActiveTab('inventory')}
-          aria-label="Inventory Stock"
-          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-colors cursor-pointer ${
-            activeTab === 'inventory'
-              ? 'text-blue-600 font-bold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-        >
-          <Icon name="boxes" size="lg" strokeWidth={activeTab === 'inventory' ? 2.5 : 2} ariaHidden={true} />
-          <span className="text-[10px] mt-0.5">Stock</span>
-        </button>
+    <nav
+      aria-label="Primary"
+      className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/60 bg-white/75 backdrop-blur-2xl backdrop-saturate-150 shadow-[0_-8px_24px_-12px_rgba(15,23,42,0.18)]"
+      style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 6px)' }}
+    >
+      <div className="flex items-stretch gap-1 px-2 pt-1.5">
+        {items.map((it) => (
+          <Item key={it.id} {...it} active={activeTab === it.id} onClick={() => setActiveTab(it.id)} />
+        ))}
+        <Item id="menu" label="Menu" icon="menu" onClick={onMenuOpen} active={false} />
       </div>
-    </>
+    </nav>
   );
 }
-
 
 export default MobileBottomNav;

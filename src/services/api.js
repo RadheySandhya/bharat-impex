@@ -504,6 +504,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+    getPermissionCatalog: () => request('/settings/permission-catalog'),
+    saveRole: (data) => request('/settings/roles', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    deleteRole: (id) => request('/settings/delete-role', {
+      method: 'POST',
+      body: JSON.stringify({ id }),
+    }),
     getWarehouses: () => request('/settings/warehouses'),
     saveWarehouse: (data) => request('/settings/warehouses', {
       method: 'POST',

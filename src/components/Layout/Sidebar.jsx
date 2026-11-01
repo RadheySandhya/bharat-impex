@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import Icon from '../UI/Icon';
 import { useAuth } from '../../context/AuthContext';
+import { canOpenTab, canSettingsSub } from '../../utils/access';
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
-export function Sidebar({ activeTab, setActiveTab, settingsSubTab, setSettingsSubTab, isOpen, setIsOpen }) {
-  const { user, logout } = useAuth();
+export function Sidebar({ activeTab, setActiveTab, settingsSubTab, setSettingsSubTab, isOpen, setIsOpen, collapsed = false, setCollapsed }) {
+  // Desktop-only icon rail; the phone drawer always shows labels
+  const hideLg = collapsed ? 'lg:hidden' : '';
+  const { user, logout, hasPermission } = useAuth();
   const [settingsExpanded, setSettingsExpanded] = useState(activeTab === 'settings');
 
   useEffect(() => {
@@ -51,7 +55,16 @@ export function Sidebar({ activeTab, setActiveTab, settingsSubTab, setSettingsSu
     { id: 'production_process', label: 'Production Process', iconKey: 'production_process' },
   ];
 
+  // Only modules this user's role allows
+  const visibleNavItems = navItems.filter((item) => canOpenTab(item.hasSubmenu ? 'settings' : item.id, hasPermission));
+
   const handleNavClick = (item) => {
+    if (item.hasSubmenu && collapsed && setCollapsed && window.innerWidth >= 1024) {
+      setCollapsed(false); // open the rail so the settings sub-menu is readable
+      setActiveTab('settings');
+      setSettingsExpanded(true);
+      return;
+    }
     if (item.hasSubmenu) {
       if (activeTab === 'settings') {
         setSettingsExpanded(!settingsExpanded);
@@ -85,32 +98,44 @@ export function Sidebar({ activeTab, setActiveTab, settingsSubTab, setSettingsSu
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed top-0 left-0 bottom-0 z-40 w-72 bg-white border-r border-slate-200/90 shadow-xs flex flex-col transition-transform duration-200 ease-in-out lg:translate-x-0 ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className={`fixed top-0 left-0 bottom-0 z-40 w-72 bg-white border-r border-slate-200/90 shadow-xs flex flex-col transition-[transform,width] duration-200 ease-out lg:translate-x-0 ${
+          collapsed ? 'lg:w-[76px]' : ''
+        } ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
         {/* Brand Header */}
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-white">
+        <div className={`p-5 border-b border-slate-100 flex items-center justify-between bg-white ${collapsed ? 'lg:px-3 lg:flex-col lg:gap-3' : ''}`}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center shadow-xs font-black text-white tracking-wider text-sm">
               BI
             </div>
-            <div>
+            <div className={hideLg}>
               <h1 className="font-extrabold text-base tracking-tight text-slate-900 leading-tight">BHARAT IMPEX</h1>
               <p className="text-[11px] text-slate-500 font-semibold flex items-center gap-1.5">
                 <Icon name="qc" size="xs" className="text-emerald-600" ariaHidden={true} /> Manufacturing Suite
               </p>
             </div>
           </div>
+          {setCollapsed && (
+            <button
+              type="button"
+              onClick={() => setCollapsed(!collapsed)}
+              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-expanded={!collapsed}
+              className="hidden lg:flex w-8 h-8 items-center justify-center rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 active:scale-90 transition-transform cursor-pointer"
+            >
+              {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+            </button>
+          )}
         </div>
 
         {/* Navigation Links */}
-        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-1 custom-scrollbar">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 pb-1.5">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 space-y-1 custom-scrollbar">
+          <div className={`text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 pb-1.5 ${hideLg}`}>
             Enterprise Modules
           </div>
 
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const isActive = activeTab === item.id;
 
             if (item.hasSubmenu) {
@@ -119,7 +144,8 @@ export function Sidebar({ activeTab, setActiveTab, settingsSubTab, setSettingsSu
                   <button
                     type="button"
                     onClick={() => handleNavClick(item)}
-                    className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 group cursor-pointer ${
+                    title={collapsed ? item.label : undefined}
+                    className={`w-full flex items-center justify-between ${collapsed ? 'lg:justify-center' : ''} px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 group cursor-pointer ${
                       isActive
                         ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200/80 shadow-xs'
                         : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
@@ -132,21 +158,21 @@ export function Sidebar({ activeTab, setActiveTab, settingsSubTab, setSettingsSu
                         className={`transition-colors ${isActive ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-700'}`}
                         ariaHidden={true}
                       />
-                      <span>{item.label}</span>
+                      <span className={hideLg}>{item.label}</span>
                     </div>
 
                     <Icon
                       name={settingsExpanded ? "chevrondown" : "chevronright"}
                       size="xs"
-                      className={`transition-transform duration-200 ${isActive ? 'text-blue-600' : 'text-slate-400'}`}
+                      className={`transition-transform duration-200 ${hideLg} ${isActive ? 'text-blue-600' : 'text-slate-400'}`}
                       ariaHidden={true}
                     />
                   </button>
 
                   {/* Submenu Accordion */}
-                  {settingsExpanded && (
+                  {settingsExpanded && !collapsed && (
                     <div className="pl-4 pr-1 py-1 space-y-0.5 border-l-2 border-slate-200 ml-5 my-1">
-                      {item.subItems.map((sub) => {
+                      {item.subItems.filter((sub) => canSettingsSub(sub.id, hasPermission)).map((sub) => {
                         const isSubActive = isActive && settingsSubTab === sub.id;
                         return (
                           <button
@@ -180,7 +206,8 @@ export function Sidebar({ activeTab, setActiveTab, settingsSubTab, setSettingsSu
                 key={item.id}
                 type="button"
                 onClick={() => handleNavClick(item)}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 group cursor-pointer ${
+                title={collapsed ? item.label : undefined}
+                className={`w-full flex items-center justify-between ${collapsed ? 'lg:justify-center' : ''} px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 group cursor-pointer ${
                   isActive
                     ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200/80 shadow-xs'
                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
@@ -193,15 +220,15 @@ export function Sidebar({ activeTab, setActiveTab, settingsSubTab, setSettingsSu
                     className={`transition-colors ${isActive ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-700'}`}
                     ariaHidden={true}
                   />
-                  <span>{item.label}</span>
+                  <span className={hideLg}>{item.label}</span>
                 </div>
 
-                {item.badge && !isActive && (
+                {item.badge && !isActive && !collapsed && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded-md font-bold bg-slate-100 text-slate-600 border border-slate-200">
                     {item.badge}
                   </span>
                 )}
-                {isActive && (
+                {isActive && !collapsed && (
                   <Icon name="chevronright" size="xs" className="text-blue-600" ariaHidden={true} />
                 )}
               </button>
@@ -211,12 +238,12 @@ export function Sidebar({ activeTab, setActiveTab, settingsSubTab, setSettingsSu
 
         {/* User Profile & Logout */}
         <div className="p-3 border-t border-slate-100 bg-slate-50/50">
-          <div className="p-2.5 rounded-xl bg-white border border-slate-200/80 shadow-xs flex items-center justify-between">
+          <div className={`p-2.5 rounded-xl bg-white border border-slate-200/80 shadow-xs flex items-center justify-between ${collapsed ? 'lg:flex-col lg:gap-2' : ''}`}>
             <div className="flex items-center gap-2.5 overflow-hidden">
               <div className="w-8 h-8 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-black text-slate-700 shrink-0">
                 {user?.username?.substring(0, 2).toUpperCase() || 'AD'}
               </div>
-              <div className="overflow-hidden">
+              <div className={`overflow-hidden ${hideLg}`}>
                 <p className="text-xs font-bold text-slate-900 truncate leading-tight">{user?.full_name || 'Bharat Impex Admin'}</p>
                 <p className="text-[10px] text-slate-500 font-medium truncate">{user?.role_name || user?.role_code || 'Administrator'}</p>
               </div>

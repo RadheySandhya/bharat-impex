@@ -57,8 +57,9 @@ class Auth {
             $tokenData = self::verifyToken($matches[1]);
             if ($tokenData && isset($tokenData['user_id'])) {
                 $db = Database::getConnection();
+                PermissionService::ensureSchema();
                 $stmt = $db->prepare("
-                    SELECT u.id, u.username, u.email, u.full_name, u.role_id, u.active,
+                    SELECT u.id, u.username, u.email, u.full_name, u.role_id, u.active, u.stage_access,
                            r.role_code, r.role_name, r.permissions
                     FROM users u
                     JOIN roles r ON u.role_id = r.id
@@ -102,20 +103,8 @@ class Auth {
 
     public static function requirePermission(string $permission): array {
         $user = self::requireAuth();
-        $roleCode = strtoupper($user['role_code'] ?? '');
-        $roleName = strtoupper($user['role_name'] ?? '');
-
-        // Admin has all permissions
-        if ($roleCode === 'ADMIN' || $roleCode === 'SUPERADMIN' || str_contains($roleName, 'ADMIN')) {
-            return $user;
-        }
-
-        $perms = $user['permissions'] ?? [];
-        if (in_array('ALL', $perms) || in_array('*', $perms) || in_array($permission, $perms)) {
-            return $user;
-        }
-
-        Response::error('Forbidden. Permission denied for ' . $permission, null, 403);
+        PermissionService::requireAny([$permission]);
+        return $user;
     }
 
     public static function hashPassword(string $password): string {

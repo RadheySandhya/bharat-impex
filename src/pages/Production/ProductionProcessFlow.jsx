@@ -22,6 +22,7 @@ import Icon from '../../components/UI/Icon';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { RejectionProcessFlow } from './RejectionProcessFlow';
+import { useAuth } from '../../context/AuthContext';
 
 // Default initial production pipeline stages
 const INITIAL_STAGES = [
@@ -112,6 +113,7 @@ function ProductionRouteFlow() {
 
   const canvasRef = useRef(null);
   const { success, error, warning } = useToast();
+  const canEditFlow = useAuth().hasPermission('production_process.edit');
 
   // Load backend processes
   const loadProcesses = async () => {
@@ -576,7 +578,7 @@ function ProductionRouteFlow() {
           <button
             type="button"
             onClick={handleSaveFlow}
-            disabled={saving}
+            disabled={saving || !canEditFlow}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-xs transition-all cursor-pointer ${
               isDirty
                 ? 'bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-500/20 shadow-md'
@@ -954,7 +956,7 @@ function ProductionRouteFlow() {
           <button
             type="button"
             onClick={handleSaveFlow}
-            disabled={saving}
+            disabled={saving || !canEditFlow}
             className="flex items-center gap-1.5 px-3.5 h-8 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer ml-1 shadow-xs"
           >
             <Save className="w-3.5 h-3.5" />

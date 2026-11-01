@@ -107,3 +107,28 @@ textarea:focus {
 .whatsapp-pulse {
   animation: fab-pulse 2.5s infinite;
 }
+
+/* ---------- Mobile app feel ---------- */
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+button, a, [role="button"], [role="tab"], label, select {
+  touch-action: manipulation; /* no 300ms tap delay */
+}
+@media (display-mode: standalone) {
+  body { overscroll-behavior-y: none; }
+}
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .backdrop-blur-2xl, .backdrop-blur-xl { backdrop-filter: none !important; background-color: #fff !important; }
+}

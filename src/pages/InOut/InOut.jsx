@@ -32,6 +32,7 @@ import Modal from '../../components/UI/Modal';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
 import { Purchase } from '../Purchase/Purchase';
 import { Sales } from '../Sales/Sales';
 
@@ -98,6 +99,9 @@ export function InOut() {
   });
 
   const { success, error, warning } = useToast();
+  const { hasPermission } = useAuth();
+  const canIn = hasPermission('in_out.purchase');
+  const canOut = hasPermission('in_out.sale');
 
   // Default godown for new rows (remembered on this browser)
   const setDefaultWarehouseId = (id) => {
@@ -419,6 +423,10 @@ export function InOut() {
 
       if (!r.party_name?.trim()) {
         error(`Row #${i + 1}: Please enter or select a Party Name.`);
+        return;
+      }
+      if ((r.type === 'IN' && !canIn) || (r.type === 'OUT' && !canOut)) {
+        error(`Row #${i + 1}: your role cannot save ${r.type === 'IN' ? 'IN (purchase)' : 'OUT (sales)'} entries.`);
         return;
       }
       if (!r.item_id) {
@@ -963,8 +971,8 @@ export function InOut() {
                                     : 'bg-rose-50 hover:bg-rose-100 text-rose-900 border-rose-300 focus:ring-rose-500/20 focus:border-rose-500'
                                 }`}
                               >
-                                <option value="IN">↓ IN (Purchase)</option>
-                                <option value="OUT">↑ OUT (Sales)</option>
+                                <option value="IN" disabled={!canIn}>↓ IN (Purchase)</option>
+                                <option value="OUT" disabled={!canOut}>↑ OUT (Sales)</option>
                               </select>
                               <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
                                 <ChevronDown className="w-3.5 h-3.5" />

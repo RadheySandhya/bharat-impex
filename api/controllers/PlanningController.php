@@ -554,6 +554,15 @@ class PlanningController {
             return;
         }
 
+        // Stage-wise access: a supervisor may only change his own stages (and the stage receiving his handoff)
+        $oldStmt = $db->prepare("SELECT stage_tracking FROM planning_releases WHERE id = ? OR release_number = ? LIMIT 1");
+        $oldStmt->execute([$releaseId, $batchNo]);
+        $oldTracking = json_decode((string)($oldStmt->fetchColumn() ?: ''), true);
+        $oldStages = is_array($oldTracking['stages'] ?? null) ? $oldTracking['stages'] : [];
+        if (is_array($stages) && $oldStages) {
+            PermissionService::requireStageChangesAllowed($oldStages, $stages);
+        }
+
         $trackingPayload = json_encode([
             'stages' => $stages,
             'ready'  => $ready,

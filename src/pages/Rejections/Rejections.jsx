@@ -6,6 +6,8 @@ import { Modal } from '../../components/UI/Modal';
 import { RejectionProcessFlow } from '../Production/RejectionProcessFlow';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
+import { RejectionTrackingSheet } from './RejectionTrackingSheet';
 
 const DISP = {
   MINOR: { label: 'Minor Rework', cls: 'bg-blue-50 text-blue-800 border-blue-200', dot: 'bg-blue-600' },
@@ -29,8 +31,9 @@ export function Rejections() {
   const [dateRange, setDateRange] = useState({ from: '', to: '', preset: 'ALL_TIME' });
   const [lots, setLots] = useState([]);
   const [lotsLoading, setLotsLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState('OPEN');
-  const [dispFilter, setDispFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [dispFilter, setDispFilter] = useState('MINOR');
+  const [routes, setRoutes] = useState({});
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState(null);
   const [scrapStock, setScrapStock] = useState([]);
@@ -41,14 +44,17 @@ export function Rejections() {
   const [advanceForm, setAdvanceForm] = useState({ remarks: '', operator: '', scrap_weight_kg: '', warehouse_id: '' });
   const [advancing, setAdvancing] = useState(false);
   const { success, error } = useToast();
+  const { hasPermission } = useAuth();
 
   const fetchMasters = async () => {
     setLoading(true);
     try {
-      const [stockRes, bundleRes] = await Promise.all([
+      const [stockRes, bundleRes, routeRes] = await Promise.all([
         api.stock.getAll({ material_type: 'SCRAP' }),
         api.settings.getBundle(),
+        api.rejections.getRoutes(),
       ]);
+      if (routeRes?.data) setRoutes(routeRes.data);
       if (stockRes?.data) setScrapStock(stockRes.data);
       if (bundleRes?.data?.rejection_reasons) setReasons(bundleRes.data.rejection_reasons);
       if (bundleRes?.data?.warehouses) setWarehouses(bundleRes.data.warehouses);
@@ -64,7 +70,6 @@ export function Rejections() {
     try {
       const res = await api.rejections.getLots({
         status: statusFilter,
-        disposition: dispFilter,
         from_date: dateRange.from,
         to_date: dateRange.to,
       });
@@ -77,16 +82,17 @@ export function Rejections() {
   };
 
   useEffect(() => { fetchMasters(); }, []);
-  useEffect(() => { fetchLots(); }, [statusFilter, dispFilter, dateRange.from, dateRange.to]);
+  useEffect(() => { fetchLots(); }, [statusFilter, dateRange.from, dateRange.to]);
 
   const visibleLots = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return lots;
-    return lots.filter((l) =>
+    const byRoute = lots.filter((l) => l.disposition === dispFilter);
+    if (!q) return byRoute;
+    return byRoute.filter((l) =>
       [l.lot_number, l.batch_no, l.item_name, l.defect_reason, l.source_stage_name, l.current_step_name]
         .some((v) => String(v || '').toLowerCase().includes(q))
     );
-  }, [lots, search]);
+  }, [lots, search, dispFilter]);
 
   const metrics = useMemo(() => {
     const open = lots.filter((l) => l.status === 'OPEN');
@@ -263,7 +269,7 @@ export function Rejections() {
               ))}
             </div>
             <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs font-semibold">
-              {[['ALL', 'All types'], ['MINOR', 'Minor Rework'], ['FURNACE', 'Furnace']].map(([v, l]) => (
+              {[['MINOR', `Minor Rework (${lots.filter((x) => x.disposition === 'MINOR' && x.status === 'OPEN').length} open)`], ['FURNACE', `Furnace (${lots.filter((x) => x.disposition === 'FURNACE' && x.status === 'OPEN').length} open)`]].map(([v, l]) => (
                 <button
                   key={v}
                   type="button"
@@ -290,134 +296,15 @@ export function Rejections() {
             </button>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-100 text-[11px] font-bold text-slate-700 text-left">
-                <tr>
-                  <th className="p-2.5">Lot / Date</th>
-                  <th className="p-2.5">Batch & Item</th>
-                  <th className="p-2.5">Rejected At</th>
-                  <th className="p-2.5">Type</th>
-                  <th className="p-2.5 text-right">Qty</th>
-                  <th className="p-2.5 min-w-[280px]">Process Progress</th>
-                  <th className="p-2.5">Status</th>
-                  <th className="p-2.5 text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {lotsLoading ? (
-                  <tr><td colSpan={8} className="p-8 text-center text-slate-400">Loading rejection lots...</td></tr>
-                ) : visibleLots.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="p-8 text-center text-slate-400">
-                      No rejection lots here. Rejections entered in SKU Tracking (stage handoff) appear in this list.
-                    </td>
-                  </tr>
-                ) : visibleLots.map((lot) => {
-                  const d = DISP[lot.disposition] || DISP.MINOR;
-                  const st = STATUS[lot.status] || STATUS.OPEN;
-                  const expanded = expandedId === lot.id;
-                  return (
-                    <React.Fragment key={lot.id}>
-                      <tr className="hover:bg-slate-50/70 align-top">
-                        <td className="p-2.5">
-                          <button type="button" onClick={() => setExpandedId(expanded ? null : lot.id)} className="font-mono font-bold text-blue-700 hover:underline cursor-pointer" title="Show history">
-                            {expanded ? '▾' : '▸'} {lot.lot_number}
-                          </button>
-                          <div className="text-[10px] text-slate-400">{fmtDate(lot.created_at)}</div>
-                        </td>
-                        <td className="p-2.5">
-                          <div className="font-mono text-[11px] text-slate-500">#{lot.batch_no}</div>
-                          <div className="font-bold text-slate-900">{lot.item_name || '—'}</div>
-                        </td>
-                        <td className="p-2.5">
-                          <div className="font-semibold text-slate-800">{lot.source_stage_name || '—'}</div>
-                          <div className="text-[10px] text-slate-500">{lot.defect_reason || ''}</div>
-                        </td>
-                        <td className="p-2.5">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap ${d.cls}`}>{d.label}</span>
-                          {lot.disposition === 'MINOR' && lot.return_stage_name && (
-                            <div className="text-[10px] text-slate-500 mt-1">Return to: {lot.return_stage_name}</div>
-                          )}
-                        </td>
-                        <td className="p-2.5 text-right">
-                          <div className="font-mono font-bold text-slate-900">{lot.quantity} PCS</div>
-                          {lot.disposition === 'FURNACE' && <div className="text-[10px] text-rose-700 font-semibold">{lot.scrap_weight_kg} kg</div>}
-                        </td>
-                        <td className="p-2.5">
-                          <div className="flex items-center flex-wrap gap-1">
-                            {lot.steps.map((s, i) => {
-                              const done = lot.status === 'COMPLETED' || i < lot.current_step;
-                              const current = lot.status === 'OPEN' && i === lot.current_step;
-                              return (
-                                <React.Fragment key={s.id || i}>
-                                  {i > 0 && <span className="text-slate-300">›</span>}
-                                  <span
-                                    title={s.note || s.name}
-                                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
-                                      current
-                                        ? `${d.cls} ring-2 ring-offset-1 ${lot.disposition === 'FURNACE' ? 'ring-rose-300' : 'ring-blue-300'}`
-                                        : done
-                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                        : 'bg-white text-slate-400 border-slate-200'
-                                    }`}
-                                  >
-                                    {done && !current ? '✓ ' : ''}{s.name}
-                                  </span>
-                                </React.Fragment>
-                              );
-                            })}
-                          </div>
-                        </td>
-                        <td className="p-2.5">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap ${st.cls}`}>{st.label}</span>
-                          {lot.status === 'COMPLETED' && lot.warehouse_name && (
-                            <div className="text-[10px] text-slate-500 mt-1">Scrap in {lot.warehouse_name}</div>
-                          )}
-                        </td>
-                        <td className="p-2.5 text-center whitespace-nowrap">
-                          {lot.status === 'OPEN' ? (
-                            <div className="flex items-center justify-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => openAdvance(lot)}
-                                className={`px-2.5 py-1 rounded-lg text-white text-[10px] font-bold cursor-pointer ${lot.is_last_step ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-900 hover:bg-slate-800'}`}
-                              >
-                                {lot.is_last_step ? 'Complete' : 'Next Step →'}
-                              </button>
-                              <button type="button" onClick={() => cancelLot(lot)} className="px-1.5 py-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 text-[10px] font-bold cursor-pointer" title="Cancel lot">
-                                ✕
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-slate-400 text-[10px]">{fmtDate(lot.completed_at || lot.updated_at)}</span>
-                          )}
-                        </td>
-                      </tr>
-                      {expanded && (
-                        <tr className="bg-slate-50/60">
-                          <td colSpan={8} className="p-3">
-                            <p className="font-bold text-slate-700 mb-1.5">Movement history</p>
-                            <ol className="space-y-1">
-                              {lot.history.map((h, i) => (
-                                <li key={i} className="flex flex-wrap gap-2 text-[11px]">
-                                  <span className="font-mono text-slate-400 w-28 shrink-0">{fmtDate(h.at)}</span>
-                                  <span className="font-bold text-slate-700">{h.action}</span>
-                                  {h.step_name && <span className="text-slate-700">→ {h.step_name}</span>}
-                                  <span className="text-slate-500">by {h.by || '—'}</span>
-                                  {h.remarks && <span className="text-slate-500 italic">"{h.remarks}"</span>}
-                                </li>
-                              ))}
-                            </ol>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <RejectionTrackingSheet
+            lots={visibleLots}
+            route={routes[dispFilter]}
+            disposition={dispFilter}
+            canProcess={hasPermission('rejections.process')}
+            canCancel={hasPermission('rejections.cancel')}
+            onAdvance={openAdvance}
+            onCancel={cancelLot}
+          />
         </div>
       )}
 
