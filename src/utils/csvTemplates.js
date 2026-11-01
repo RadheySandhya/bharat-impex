@@ -252,10 +252,14 @@ export function downloadMasterCatalog(rms = null, fgs = null) {
 }
 
 // 5. Download Bulk Stock Setup & Initialization Template (with Min/Max Levels & Auto-ID support)
-export function downloadBulkStockTemplate(rms = null, fgs = null) {
+export function downloadBulkStockTemplate(rms = null, fgs = null, opts = {}) {
   const rmList = (rms && rms.length > 0) ? rms : DEFAULT_RAW_MATERIALS;
   const fgList = (fgs && fgs.length > 0) ? fgs : DEFAULT_FINISHED_GOODS;
   const today = new Date().toISOString().slice(0, 10);
+  // opts.godownCode: godown the sheet is for; opts.qtyMap: { 'RM_12': qty, 'FG_7': qty } balances in that godown
+  const godown = opts.godownCode || '';
+  const qtyMap = opts.qtyMap || null;
+  const qtyFor = (type, item, fallback) => (qtyMap ? (qtyMap[`${type}_${item.id}`] || 0) : fallback);
 
   const escapeCsv = (str) => `"${String(str ?? '').replace(/"/g, '""')}"`;
 
@@ -269,7 +273,8 @@ export function downloadBulkStockTemplate(rms = null, fgs = null) {
     'Rate',
     'Min Level (Reorder)',
     'Max Level (Max Stock)',
-    'Category'
+    'Category',
+    'Godown'
   ];
 
   // Existing Child Parts
@@ -277,13 +282,13 @@ export function downloadBulkStockTemplate(rms = null, fgs = null) {
     const id = rm.id || (idx + 1);
     const code = rm.code || rm.rm_code || `RM-${String(idx + 1).padStart(6, '0')}`;
     const name = escapeCsv(rm.material_name || rm.item_name);
-    const qty = rm.current_stock || 0;
+    const qty = qtyFor('RM', rm, rm.current_stock || 0);
     const unit = rm.unit_code || rm.unit || 'PCS';
     const rate = rm.standard_rate || rm.default_rate || 500;
     const minLevel = rm.reorder_level || rm.minimum_stock || 100;
     const maxLevel = rm.maximum_stock || (minLevel * 3) || 500;
     const cat = escapeCsv(rm.category_name || rm.category || 'Child Part');
-    return `${id},RM,${code},${name},${qty},${unit},${Number(rate).toFixed(2)},${minLevel},${maxLevel},${cat}`;
+    return `${id},RM,${code},${name},${qty},${unit},${Number(rate).toFixed(2)},${minLevel},${maxLevel},${cat},${escapeCsv(godown)}`;
   });
 
   // Existing Finished Goods
@@ -291,23 +296,24 @@ export function downloadBulkStockTemplate(rms = null, fgs = null) {
     const id = fg.id || (idx + 1);
     const code = fg.code || fg.fg_code || `FG-${String(idx + 1).padStart(6, '0')}`;
     const name = escapeCsv(fg.product_name || fg.item_name);
-    const qty = fg.current_stock || 0;
+    const qty = qtyFor('FG', fg, fg.current_stock || 0);
     const unit = fg.unit_code || fg.unit || 'PCS';
     const rate = fg.selling_price || fg.default_rate || 1200;
     const minLevel = fg.reorder_level || fg.minimum_stock || 50;
     const maxLevel = fg.maximum_stock || (minLevel * 3) || 250;
     const cat = escapeCsv(fg.category_name || fg.category || 'Finished Good');
-    return `${id},FG,${code},${name},${qty},${unit},${Number(rate).toFixed(2)},${minLevel},${maxLevel},${cat}`;
+    return `${id},FG,${code},${name},${qty},${unit},${Number(rate).toFixed(2)},${minLevel},${maxLevel},${cat},${escapeCsv(godown)}`;
   });
 
   // Sample blank-ID rows for new items
   const sampleNewRows = [
-    `,RM,,SAMPLE NEW BRASS COMPONENT,200,PCS,450.00,100,500,"Child Part"`,
-    `,FG,,SAMPLE NEW FAUCET MODEL,80,PCS,1100.00,50,300,"Finished Good"`
+    `,RM,,SAMPLE NEW BRASS COMPONENT,200,PCS,450.00,100,500,"Child Part",${escapeCsv(godown)}`,
+    `,FG,,SAMPLE NEW FAUCET MODEL,80,PCS,1100.00,50,300,"Finished Good",${escapeCsv(godown)}`
   ];
 
   const csv = [headers.join(','), ...rmRows, ...fgRows, ...sampleNewRows].join('\n');
-  triggerDownload(csv, `Bharat_Impex_Bulk_Stock_Setup_Format_${today}.csv`);
+  const suffix = godown ? `_${String(godown).replace(/[^A-Za-z0-9-]+/g, '_')}` : '';
+  triggerDownload(csv, `Bharat_Impex_Bulk_Stock_Setup_Format${suffix}_${today}.csv`);
 }
 
 // 6. Download Child Part Master CSV Template / Export

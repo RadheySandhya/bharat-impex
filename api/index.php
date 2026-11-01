@@ -49,6 +49,7 @@ require_once __DIR__ . '/controllers/PlanningController.php';
 require_once __DIR__ . '/controllers/InOutController.php';
 require_once __DIR__ . '/controllers/SubSKUController.php';
 require_once __DIR__ . '/controllers/SubChildPartController.php';
+require_once __DIR__ . '/controllers/RejectionController.php';
 
 // Route Extraction
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
@@ -64,6 +65,11 @@ if ($apiPos !== false) {
 }
 
 try {
+    // Keep stock.available_quantity consistent on schemas where it is a plain column
+    if ($route !== '' && $route !== 'health') {
+        InventoryService::healStockTable();
+    }
+
     switch ($route) {
         // Health / Status
         case '':
@@ -137,6 +143,9 @@ try {
             break;
         case 'stock/transfer':
             if ($method === 'POST') StockController::transfer();
+            break;
+        case 'stock/transfers':
+            if ($method === 'GET') StockController::transfers();
             break;
         case 'stock/opening':
             if ($method === 'POST') StockController::openingStock();
@@ -367,6 +376,22 @@ try {
             break;
         case 'sub-child-parts/delete':
             if ($method === 'POST') SubChildPartController::delete();
+            break;
+
+        // Rejection Tracking (Minor Rework / Furnace) & Rejection Process Routes
+        case 'rejections/routes':
+            if ($method === 'GET') RejectionController::routes();
+            elseif ($method === 'POST') RejectionController::saveRoute();
+            break;
+        case 'rejections/lots':
+            if ($method === 'GET') RejectionController::lots();
+            elseif ($method === 'POST') RejectionController::createLots();
+            break;
+        case 'rejections/lots/advance':
+            if ($method === 'POST') RejectionController::advanceLot();
+            break;
+        case 'rejections/lots/cancel':
+            if ($method === 'POST') RejectionController::cancelLot();
             break;
 
         // Tally Item Mappings

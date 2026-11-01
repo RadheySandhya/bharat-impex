@@ -21,6 +21,7 @@ import {
 import Icon from '../../components/UI/Icon';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { RejectionProcessFlow } from './RejectionProcessFlow';
 
 // Default initial production pipeline stages
 const INITIAL_STAGES = [
@@ -85,7 +86,7 @@ const INITIAL_EDGES = [
 const CARD_WIDTH = 230;
 const CARD_HEIGHT = 105;
 
-export function ProductionProcessFlow() {
+function ProductionRouteFlow() {
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1058,4 +1059,43 @@ export function ProductionProcessFlow() {
     </div>
   );
 }
+// Production Process page: production route map + rejection process map
+export function ProductionProcessFlow() {
+  const [mode, setMode] = useState(() => {
+    try { return localStorage.getItem('bharat_process_map_mode') || 'production'; } catch (e) { return 'production'; }
+  });
+  const changeMode = (m) => {
+    setMode(m);
+    try { localStorage.setItem('bharat_process_map_mode', m); } catch (e) {}
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-1 bg-slate-100 p-1.5 rounded-2xl border border-slate-200 w-fit">
+        <button
+          type="button"
+          onClick={() => changeMode('production')}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer ${
+            mode === 'production' ? 'bg-white text-indigo-700 shadow-xs border border-slate-200' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Workflow className="w-3.5 h-3.5" />
+          <span>Production Process</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => changeMode('rejection')}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer ${
+            mode === 'rejection' ? 'bg-white text-rose-700 shadow-xs border border-slate-200' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+          <span>Rejection Process</span>
+        </button>
+      </div>
+      {mode === 'production' ? <ProductionRouteFlow /> : <RejectionProcessFlow />}
+    </div>
+  );
+}
+
 export default ProductionProcessFlow;

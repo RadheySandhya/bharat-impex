@@ -1,107 +1,168 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Modal } from './Modal';
 import Icon from './Icon';
 import SearchableSelect from './SearchableSelect';
 import { api } from '../../services/api';
 
-export function StageHandoffModal({ 
-  isOpen, 
-  onClose, 
-  row, 
+// Default Fallback Stages definition
+const DEFAULT_STAGES_FLOW = [
+  { key: 'casting', name: 'Gravity Casting', nextKey: 'machining', nextName: 'CNC Machining (M/C)' },
+  { key: 'machining', name: 'CNC Machining (M/C)', nextKey: 'lp', nextName: 'Lathe & Polish (LP)' },
+  { key: 'lp', name: 'Lathe & Polish (LP)', nextKey: 'cp', nextName: 'Chrome Plating (CP)' },
+  { key: 'cp', name: 'Chrome Plating (CP)', nextKey: 'assembly', nextName: 'Assembly & Testing' },
+  { key: 'assembly', name: 'Assembly & Testing', nextKey: 'ready', nextName: 'Ready FG Stock' },
+];
+
+const DEFECT_REASONS = [
+  'Blow Hole / Porosity',
+  'Crack / Shrinkage',
+  'Tool Break / Undercut',
+  'Thread Slip / Burr',
+  'Dimension Out of Tolerance',
+  'Buffing Dent / Scratches',
+  'Plating Blister / Color Peel',
+  'Assembly Leak / Pressure Drop',
+];
+
+export function StageHandoffModal({
+  isOpen,
+  onClose,
+  row,
   stageKey, // stage identifier or dynamic process code
   stagesFlow, // optional dynamic route sequence
-  onConfirm 
+  onConfirm
 }) {
-  if (!isOpen || !row) return null;
-
-  // Default Fallback Stages definition
-  const DEFAULT_STAGES_FLOW = [
-    { key: 'casting', name: 'Gravity Casting', nextKey: 'machining', nextName: 'CNC Machining (M/C)' },
-    { key: 'machining', name: 'CNC Machining (M/C)', nextKey: 'lp', nextName: 'Lathe & Polish (LP)' },
-    { key: 'lp', name: 'Lathe & Polish (LP)', nextKey: 'cp', nextName: 'Chrome Plating (CP)' },
-    { key: 'cp', name: 'Chrome Plating (CP)', nextKey: 'assembly', nextName: 'Assembly & Testing' },
-    { key: 'assembly', name: 'Assembly & Testing', nextKey: 'ready', nextName: 'Ready FG Stock' },
-  ];
-
   const effectiveFlow = (stagesFlow && stagesFlow.length > 0) ? stagesFlow : DEFAULT_STAGES_FLOW;
-  const currentStageInfo = effectiveFlow.find(s => s.key === stageKey) || effectiveFlow[0];
-  const isFinalToReady = currentStageInfo.nextKey === 'ready';
+  const currentStageInfo = effectiveFlow.find((s) => s.key === stageKey) || effectiveFlow[0];
+  const isFinalToReady = currentStageInfo?.nextKey === 'ready';
 
-  // Current stage stats
-  const stageData = row.stages ? (row.stages[stageKey] || {}) : (row[stageKey] || {});
+  // Current stage stats: pieces still waiting at this stage
+  const stageData = row ? (row.stages ? (row.stages[stageKey] || {}) : (row[stageKey] || {})) : {};
+  const balance = Number(stageData.bal);
   const currentAvailable = Number(
-    stageData.prod_qty || stageData.recd_store || row.qty_recd_casting || 100
+    (Number.isFinite(balance) && balance > 0 ? balance : null) ??
+    (stageData.prod_qty || stageData.recd_store || row?.qty_recd_casting || 0)
   );
+  const avgWeight = Number(row?.avg_weight) || 0.35;
 
   // Form State
   const [goodQty, setGoodQty] = useState(currentAvailable);
   const [rejQty, setRejQty] = useState(0);
-  const [rejReason, setRejReason] = useState('Blow Hole / Porosity');
-  const [disposition, setDisposition] = useState('REWORK'); // 'REWORK' or 'RECAST_SCRAP'
-  const [reworkStage, setReworkStage] = useState(stageKey);
+  const [minorQty, setMinorQty] = useState(0);
+  const [rejReason, setRejReason] = useState(DEFECT_REASONS[0]);
+  const [returnStage, setReturnStage] = useState(stageKey);
   const [operatorName, setOperatorName] = useState('Supervisor / Operator');
   const [remarks, setRemarks] = useState('');
   const [warehouses, setWarehouses] = useState([]);
-  const [selectedWarehouseId, setSelectedWarehouseId] = useState(3); // Default WH-FG
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
+
+  const furnaceQty = Math.max(0, rejQty - minorQty);
 
   useEffect(() => {
     setGoodQty(currentAvailable);
     setRejQty(0);
-  }, [currentAvailable, stageKey]);
+    setMinorQty(0);
+    setReturnStage(stageKey);
+    setRemarks('');
+  }, [currentAvailable, stageKey, row?.id]);
 
   useEffect(() => {
     if (isOpen && isFinalToReady) {
       api.settings.getWarehouses()
         .then((res) => {
-          const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
-          if (list.length > 0) {
-            setWarehouses(list);
-            const fgWh = list.find((w) => w.warehouse_code === 'WH-FG' || w.warehouse_name.toLowerCase().includes('finish') || w.is_default);
-            if (fgWh) {
-              setSelectedWarehouseId(fgWh.id);
-            } else {
-              setSelectedWarehouseId(list[0].id);
-            }
-          }
+          const list = (Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []))
+            .filter((w) => w.active === undefined || Number(w.active) === 1);
+          setWarehouses(list);
+          let saved = '';
+          try { saved = localStorage.getItem('bharat_fg_output_godown') || ''; } catch (e) {}
+          const pick = list.find((w) => String(w.id) === saved)
+            || list.find((w) => w.warehouse_code === 'WH-FG' || (w.warehouse_name || '').toLowerCase().includes('finish'))
+            || list.find((w) => Number(w.is_default) === 1)
+            || list[0];
+          if (pick) setSelectedWarehouseId(String(pick.id));
         })
-        .catch((err) => {
-          console.warn('Could not fetch warehouses:', err);
-        });
+        .catch((err) => console.warn('Could not fetch warehouses:', err));
     }
   }, [isOpen, isFinalToReady]);
 
+  const returnStageOptions = useMemo(
+    () => effectiveFlow.map((s) => ({ key: s.key, name: s.name })),
+    [effectiveFlow]
+  );
+
+  if (!isOpen || !row) return null;
+
   const handleGoodChange = (val) => {
-    const g = Number(val) || 0;
+    const g = Math.max(0, Number(val) || 0);
     setGoodQty(g);
     if (g + rejQty > currentAvailable) {
-      setRejQty(Math.max(0, currentAvailable - g));
+      const r = Math.max(0, currentAvailable - g);
+      setRejQty(r);
+      setMinorQty((m) => Math.min(m, r));
     }
   };
 
   const handleRejChange = (val) => {
-    const r = Number(val) || 0;
+    const r = Math.max(0, Number(val) || 0);
     setRejQty(r);
+    setMinorQty((m) => Math.min(m, r));
     if (goodQty + r > currentAvailable) {
       setGoodQty(Math.max(0, currentAvailable - r));
     }
   };
 
+  const handleMinorChange = (val) => {
+    const m = Math.max(0, Math.min(rejQty, Number(val) || 0));
+    setMinorQty(m);
+  };
+
+  const handleFurnaceChange = (val) => {
+    const f = Math.max(0, Math.min(rejQty, Number(val) || 0));
+    setMinorQty(rejQty - f);
+  };
+
   const handleSubmit = (e) => {
-    e.preventDefault();
+    e?.preventDefault?.();
+    if (goodQty + rejQty <= 0) return;
+    if (isFinalToReady && goodQty > 0 && !selectedWarehouseId && warehouses.length > 0) return;
+
+    const returnStageName = returnStageOptions.find((s) => s.key === returnStage)?.name || currentStageInfo.name;
+    const rejectionSplits = [];
+    if (minorQty > 0) {
+      rejectionSplits.push({
+        disposition: 'MINOR',
+        quantity: Number(minorQty),
+        return_stage_key: returnStage,
+        return_stage_name: returnStageName,
+      });
+    }
+    if (furnaceQty > 0) {
+      rejectionSplits.push({ disposition: 'FURNACE', quantity: Number(furnaceQty) });
+    }
+
+    if (isFinalToReady && selectedWarehouseId) {
+      try { localStorage.setItem('bharat_fg_output_godown', String(selectedWarehouseId)); } catch (err) {}
+    }
+
     if (onConfirm) {
       onConfirm({
         rowId: row.id,
         stageKey,
+        stageName: currentStageInfo.name,
         nextStageKey: currentStageInfo.nextKey,
         goodQty: Number(goodQty),
         rejQty: Number(rejQty),
+        minorQty: Number(minorQty),
+        furnaceQty: Number(furnaceQty),
+        rejectionSplits,
         rejReason,
-        disposition, // 'REWORK' or 'RECAST_SCRAP'
-        reworkStage: disposition === 'REWORK' ? reworkStage : null,
+        // legacy single disposition flag (kept for callers that still read it)
+        disposition: minorQty > 0 && furnaceQty > 0 ? 'MIXED' : (minorQty > 0 ? 'REWORK' : 'RECAST_SCRAP'),
+        reworkStage: minorQty > 0 ? returnStage : null,
         operatorName,
         remarks,
-        warehouseId: isFinalToReady ? Number(selectedWarehouseId) : null,
-        scrapWeightKg: (Number(rejQty) * (Number(row.avg_weight) || 0.35)).toFixed(3)
+        warehouseId: isFinalToReady ? Number(selectedWarehouseId) || null : null,
+        scrapWeightKg: (Number(furnaceQty) * avgWeight).toFixed(3)
       });
     }
     onClose();
@@ -124,7 +185,8 @@ export function StageHandoffModal({
           <button
             type="button"
             onClick={handleSubmit}
-            className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
+            disabled={goodQty + rejQty <= 0}
+            className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
           >
             <Icon name="check" size="xs" ariaHidden={true} />
             <span>Confirm & Send to {currentStageInfo.nextName}</span>
@@ -142,7 +204,7 @@ export function StageHandoffModal({
             <h4 className="font-extrabold text-slate-900 text-sm mt-0.5">{row.item_name}</h4>
           </div>
           <div className="text-right">
-            <span className="text-[10px] text-slate-500 font-bold uppercase block">Current Qty</span>
+            <span className="text-[10px] text-slate-500 font-bold uppercase block">Pending at stage</span>
             <span className="text-base font-black font-mono text-slate-900">{currentAvailable} PCS</span>
           </div>
         </div>
@@ -162,12 +224,12 @@ export function StageHandoffModal({
               className="w-full bg-white border border-emerald-300 rounded-lg px-3 py-2 text-slate-900 font-mono font-black text-base focus:ring-2 focus:ring-emerald-500"
               required
             />
-            <p className="text-[10px] text-emerald-700 font-medium mt-1">Moves to next stage queue</p>
+            <p className="text-[10px] text-emerald-700 font-medium mt-1">Moves to {currentStageInfo.nextName}</p>
           </div>
 
           <div className="bg-rose-50/70 border border-rose-200 rounded-xl p-3">
             <label className="block text-[11px] font-bold text-rose-900 mb-1">
-              ✗ Defect / Rejection Qty
+              ✗ Total Rejection Qty
             </label>
             <input
               type="number"
@@ -177,21 +239,26 @@ export function StageHandoffModal({
               onChange={(e) => handleRejChange(e.target.value)}
               className="w-full bg-white border border-rose-300 rounded-lg px-3 py-2 text-rose-900 font-mono font-black text-base focus:ring-2 focus:ring-rose-500"
             />
-            <p className="text-[10px] text-rose-700 font-medium mt-1">Logged to Scrap / Rework Hub</p>
+            <p className="text-[10px] text-rose-700 font-medium mt-1">Split below: minor rework / furnace</p>
           </div>
         </div>
 
-        {/* Rejection Details & Dual Rework Disposition (Visible when rejQty > 0) */}
+        {/* Rejection split: minor defect vs furnace */}
         {rejQty > 0 && (
-          <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5 space-y-3 animate-in fade-in duration-200">
+          <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5 space-y-3">
             <div className="flex items-center justify-between border-b border-amber-200/80 pb-2">
               <span className="font-bold text-amber-900 text-xs flex items-center gap-1.5">
                 <Icon name="alert" size="xs" className="text-amber-600" ariaHidden={true} />
-                Rejection Disposition Plan ({rejQty} PCS)
+                What happens to the {rejQty} rejected PCS?
               </span>
-              <span className="text-[10px] font-mono text-amber-800 font-bold">
-                ≈ {(rejQty * (Number(row.avg_weight) || 0.35)).toFixed(2)} KG Scrap
-              </span>
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => setMinorQty(rejQty)} className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white border border-blue-300 text-blue-700 hover:bg-blue-50 cursor-pointer">
+                  All Minor
+                </button>
+                <button type="button" onClick={() => setMinorQty(0)} className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 cursor-pointer">
+                  All Furnace
+                </button>
+              </div>
             </div>
 
             <div>
@@ -201,116 +268,86 @@ export function StageHandoffModal({
                 onChange={(e) => setRejReason(e.target.value)}
                 className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 text-slate-900 font-medium focus:ring-2 focus:ring-amber-500"
               >
-                <option value="Blow Hole / Porosity">Blow Hole / Porosity (Casting)</option>
-                <option value="Tool Break / Undercut">Tool Break / Undercut (Machining)</option>
-                <option value="Thread Slip / Burr">Thread Slip / Burr (Machining)</option>
-                <option value="Buffing Dent / Scratches">Buffing Dent / Scratches (Polish)</option>
-                <option value="Plating Blister / Color Peel">Plating Blister / Color Peel (CP)</option>
-                <option value="Assembly Leak / Pressure Drop">Assembly Leak / Pressure Drop (QC)</option>
+                {DEFECT_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
 
-            {/* Disposition Selector: Stage Rework vs Foundry Recast */}
-            <div>
-              <label className="block font-bold text-slate-700 mb-1.5">How will this rejected lot be handled?</label>
-              <div className="grid grid-cols-2 gap-2">
-                <label
-                  className={`p-2.5 rounded-xl border flex flex-col justify-between cursor-pointer transition-all ${
-                    disposition === 'REWORK'
-                      ? 'bg-blue-50 border-blue-400 text-blue-900 shadow-xs ring-2 ring-blue-500/20'
-                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 font-bold text-xs">
-                    <input
-                      type="radio"
-                      name="disposition"
-                      value="REWORK"
-                      checked={disposition === 'REWORK'}
-                      onChange={() => setDisposition('REWORK')}
-                      className="text-blue-600"
-                    />
-                    <span>1. Stage Rework (Minor)</span>
-                  </div>
-                  <p className="text-[10px] mt-1 text-slate-500 font-medium">
-                    Fix by re-buffing, re-plating or re-machining. Returns to batch.
-                  </p>
-                </label>
-
-                <label
-                  className={`p-2.5 rounded-xl border flex flex-col justify-between cursor-pointer transition-all ${
-                    disposition === 'RECAST_SCRAP'
-                      ? 'bg-rose-50 border-rose-400 text-rose-900 shadow-xs ring-2 ring-rose-500/20'
-                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 font-bold text-xs">
-                    <input
-                      type="radio"
-                      name="disposition"
-                      value="RECAST_SCRAP"
-                      checked={disposition === 'RECAST_SCRAP'}
-                      onChange={() => setDisposition('RECAST_SCRAP')}
-                      className="text-rose-600"
-                    />
-                    <span>2. Melt & Recast (Furnace)</span>
-                  </div>
-                  <p className="text-[10px] mt-1 text-slate-500 font-medium">
-                    Unrecoverable defect. Melt back into raw brass furnace stock.
-                  </p>
-                </label>
+            <div className="grid grid-cols-2 gap-2">
+              <div className={`p-2.5 rounded-xl border ${minorQty > 0 ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-500/20' : 'bg-white border-slate-200'}`}>
+                <label className="block font-bold text-blue-900 text-xs mb-1">1. Minor Defect (Rework)</label>
+                <input
+                  type="number"
+                  min="0"
+                  max={rejQty}
+                  value={minorQty}
+                  onChange={(e) => handleMinorChange(e.target.value)}
+                  className="w-full bg-white border border-blue-300 rounded-lg px-2.5 py-1.5 font-mono font-black text-sm text-blue-900"
+                  aria-label="Minor defect quantity"
+                />
+                <p className="text-[10px] mt-1 text-slate-500 font-medium">Repaired, then returned to production.</p>
+              </div>
+              <div className={`p-2.5 rounded-xl border ${furnaceQty > 0 ? 'bg-rose-50 border-rose-400 ring-2 ring-rose-500/20' : 'bg-white border-slate-200'}`}>
+                <label className="block font-bold text-rose-900 text-xs mb-1">2. Furnace (Melt & Recast)</label>
+                <input
+                  type="number"
+                  min="0"
+                  max={rejQty}
+                  value={furnaceQty}
+                  onChange={(e) => handleFurnaceChange(e.target.value)}
+                  className="w-full bg-white border border-rose-300 rounded-lg px-2.5 py-1.5 font-mono font-black text-sm text-rose-900"
+                  aria-label="Furnace quantity"
+                />
+                <p className="text-[10px] mt-1 text-slate-500 font-medium">
+                  ≈ {(furnaceQty * avgWeight).toFixed(2)} kg scrap to furnace.
+                </p>
               </div>
             </div>
 
-            {disposition === 'REWORK' && (
+            {minorQty > 0 && (
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Target Rework Stage</label>
+                <label className="block font-bold text-slate-700 mb-1">After rework, return the {minorQty} PCS to stage</label>
                 <select
-                  value={reworkStage}
-                  onChange={(e) => setReworkStage(e.target.value)}
+                  value={returnStage}
+                  onChange={(e) => setReturnStage(e.target.value)}
                   className="w-full bg-white border border-blue-300 rounded-xl px-3 py-1.5 text-slate-900 font-semibold"
                 >
-                  <option value="casting">Gravity Casting (Touch-up)</option>
-                  <option value="machining">CNC Machining (Re-threading / Trim)</option>
-                  <option value="lp">Lathe & Buffing (Re-polish)</option>
-                  <option value="cp">Chrome Plating (Stripping & Re-plating)</option>
+                  {returnStageOptions.map((s) => (
+                    <option key={s.key} value={s.key}>{s.name}{s.key === stageKey ? ' (this stage)' : ''}</option>
+                  ))}
                 </select>
               </div>
             )}
+
+            <p className="text-[10px] text-amber-800 font-medium">
+              Each part is tracked as a rejection lot in <strong>Rejection & Scrap Stock</strong> and moves through the steps of its rejection process.
+            </p>
           </div>
         )}
 
         {/* Destination FG Warehouse Selection (When transferring to Ready FG Stock) */}
         {isFinalToReady && (
-          <div className="bg-indigo-50/80 border border-indigo-200 rounded-2xl p-3.5 space-y-2 animate-in fade-in duration-200">
+          <div className="bg-indigo-50/80 border border-indigo-200 rounded-2xl p-3.5 space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
                 <Icon name="warehouse" size="xs" className="text-indigo-600" ariaHidden={true} />
-                <span>Destination Finished Goods Warehouse / Store</span>
+                <span>Store finished goods in godown</span>
               </label>
               <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100/70 px-2 py-0.5 rounded-md">
                 Stores {goodQty} PCS
               </span>
             </div>
-            <p className="text-[11px] text-indigo-800">
-              Select which warehouse or storage location will receive this finished lot into live inventory.
-            </p>
             <SearchableSelect
               value={selectedWarehouseId}
-              onChange={(val) => setSelectedWarehouseId(Number(val))}
-              placeholder="-- Choose Warehouse --"
-              searchPlaceholder="Search warehouse by name or code..."
+              onChange={(val) => setSelectedWarehouseId(String(val))}
+              placeholder="-- Choose Godown --"
+              searchPlaceholder="Search godown by name or code..."
               className="w-full"
               buttonClassName="bg-white border border-indigo-300 rounded-xl px-3 py-2 text-slate-900 font-bold text-xs"
-              options={warehouses.length > 0 ? (
-                warehouses.map((wh) => ({
-                  value: wh.id,
-                  label: `${wh.warehouse_name} ${wh.is_default ? '★ Default' : ''}`,
-                  sublabel: wh.warehouse_code
-                }))
-              ) : (
-                [{ value: 3, label: 'WH-FG Finished Goods Dispatch Hub (Default)' }]
-              )}
+              options={warehouses.map((wh) => ({
+                value: String(wh.id),
+                label: `${wh.warehouse_name}${Number(wh.is_default) === 1 ? ' ★ Default' : ''}`,
+                sublabel: wh.warehouse_code
+              }))}
             />
           </div>
         )}

@@ -4,7 +4,89 @@
 // ============================================================
 
 class InventoryService {
-    
+
+    /** Cached per request: is stock.available_quantity a GENERATED column? */
+    private static ?bool $availableIsGenerated = null;
+    private static bool $stockHealed = false;
+
+    /**
+     * Local schema.sql defines `stock.available_quantity` as GENERATED (quantity - reserved),
+     * but the live cPanel database has it as a plain column. Writing to a generated column
+     * fails ("value specified for generated column is not allowed"), while never writing a
+     * plain column leaves it stale (and decreaseStock then reports false "Insufficient stock").
+     * Detect which schema we are on so every write path works on both.
+     */
+    public static function availableIsGenerated(): bool {
+        if (self::$availableIsGenerated !== null) {
+            return self::$availableIsGenerated;
+        }
+        $db = Database::getConnection();
+        try {
+            $stmt = $db->query("
+                SELECT EXTRA FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'stock' AND COLUMN_NAME = 'available_quantity'
+            ");
+            $extra = strtoupper((string)($stmt->fetchColumn() ?: ''));
+            self::$availableIsGenerated = (strpos($extra, 'GENERATED') !== false
+                || strpos($extra, 'PERSISTENT') !== false
+                || strpos($extra, 'VIRTUAL') !== false);
+        } catch (Exception $e) {
+            self::$availableIsGenerated = true; // safest: never write to it
+        }
+        return self::$availableIsGenerated;
+    }
+
+    /**
+     * Recompute available_quantity for one stock row (or all rows) when it is a plain column.
+     * No-op on schemas where the database maintains it automatically.
+     */
+    public static function syncAvailable(?int $stockId = null): void {
+        if (self::availableIsGenerated()) return;
+        $db = Database::getConnection();
+        if ($stockId) {
+            $db->prepare("UPDATE stock SET available_quantity = quantity - reserved_quantity WHERE id = ?")
+               ->execute([$stockId]);
+        } else {
+            $db->exec("UPDATE stock SET available_quantity = quantity - reserved_quantity
+                       WHERE available_quantity <> quantity - reserved_quantity");
+        }
+    }
+
+    /**
+     * One-time (per request) repair of rows whose available_quantity drifted on plain-column schemas.
+     */
+    public static function healStockTable(): void {
+        if (self::$stockHealed) return;
+        self::$stockHealed = true;
+        try {
+            self::syncAvailable(null);
+        } catch (Exception $e) {
+            error_log('Stock heal failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Find the stock row id for a material in a warehouse.
+     */
+    private static function stockRowId(string $materialType, int $materialId, int $warehouseId): ?int {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("SELECT id FROM stock WHERE material_type = ? AND material_id = ? AND warehouse_id = ?");
+        $stmt->execute([$materialType, $materialId, $warehouseId]);
+        $id = $stmt->fetchColumn();
+        return $id ? (int)$id : null;
+    }
+
+    /**
+     * Warehouse display label for ledger remarks.
+     */
+    public static function warehouseLabel(int $warehouseId): string {
+        $db = Database::getConnection();
+        $stmt = $db->prepare("SELECT warehouse_name FROM warehouses WHERE id = ?");
+        $stmt->execute([$warehouseId]);
+        $name = $stmt->fetchColumn();
+        return $name ?: "WH #{$warehouseId}";
+    }
+
     /**
      * Get or create a valid warehouse ID
      * Prevents foreign key constraint violations if warehouses were wiped
@@ -91,6 +173,7 @@ class InventoryService {
             ");
             $insertStmt->execute([$materialType, $materialId, $materialCode, $materialName, $warehouseId, $newQuantity, $unitId]);
         }
+        self::syncAvailable($stock ? (int)$stock['id'] : self::stockRowId($materialType, $materialId, $warehouseId));
 
         // Insert into immutable stock ledger
         $ledgerStmt = $db->prepare("
@@ -167,7 +250,7 @@ class InventoryService {
         $stock = $stmt->fetch();
 
         $currentQty = $stock ? (float)$stock['quantity'] : 0.0;
-        $availQty = $stock ? (float)$stock['available_quantity'] : 0.0;
+        $availQty = $stock ? ((float)$stock['quantity'] - (float)$stock['reserved_quantity']) : 0.0;
 
         // Check company negative stock policy
         $settingsStmt = $db->query("SELECT allow_negative_stock FROM company_settings WHERE id = 1");
@@ -203,6 +286,7 @@ class InventoryService {
             ");
             $insertStmt->execute([$materialType, $materialId, $materialCode, $matName, $warehouseId, $newQuantity, $unitId]);
         }
+        self::syncAvailable($stock ? (int)$stock['id'] : self::stockRowId($materialType, $materialId, $warehouseId));
 
         // Insert into immutable stock ledger
         $ledgerStmt = $db->prepare("
@@ -265,14 +349,16 @@ class InventoryService {
         $stmt->execute([$materialType, $materialId, $warehouseId]);
         $stock = $stmt->fetch();
 
-        if (!$stock || (float)$stock['available_quantity'] < $qty) {
-            $avail = $stock ? (float)$stock['available_quantity'] : 0.0;
+        $stockAvail = $stock ? ((float)$stock['quantity'] - (float)$stock['reserved_quantity']) : 0.0;
+        if (!$stock || $stockAvail < $qty) {
+            $avail = $stockAvail;
             throw new RuntimeException("Cannot reserve {$qty} of {$materialCode}. Available: {$avail}");
         }
 
         $newReserved = (float)$stock['reserved_quantity'] + $qty;
         $db->prepare("UPDATE stock SET reserved_quantity = ?, updated_at = NOW() WHERE id = ?")
            ->execute([$newReserved, $stock['id']]);
+        self::syncAvailable((int)$stock['id']);
 
         // Ledger record for reservation tracking
         $db->prepare("
@@ -331,6 +417,7 @@ class InventoryService {
 
         $db->prepare("UPDATE stock SET quantity = ?, reserved_quantity = ?, updated_at = NOW() WHERE id = ?")
            ->execute([$newQuantity, $newReserved, $stock['id']]);
+        self::syncAvailable((int)$stock['id']);
 
         $db->prepare("
             INSERT INTO stock_ledger (
@@ -382,6 +469,7 @@ class InventoryService {
             $newReserved = max(0.0, (float)$stock['reserved_quantity'] - $qty);
             $db->prepare("UPDATE stock SET reserved_quantity = ?, updated_at = NOW() WHERE id = ?")
                ->execute([$newReserved, $stock['id']]);
+            self::syncAvailable((int)$stock['id']);
 
             $db->prepare("
                 INSERT INTO stock_ledger (
@@ -534,6 +622,15 @@ class InventoryService {
             if ($sourceWarehouseId === $destWarehouseId) {
                 throw new InvalidArgumentException("Source and destination warehouses cannot be the same.");
             }
+            $whChk = $db->prepare("SELECT COUNT(*) FROM warehouses WHERE id IN (?, ?) AND active = 1");
+            $whChk->execute([$sourceWarehouseId, $destWarehouseId]);
+            if ((int)$whChk->fetchColumn() !== 2) {
+                throw new InvalidArgumentException("Source or destination warehouse is invalid or inactive.");
+            }
+            $srcLabel = self::warehouseLabel($sourceWarehouseId);
+            $dstLabel = self::warehouseLabel($destWarehouseId);
+            $note = $remarks ? " - {$remarks}" : '';
+            $movedLines = 0;
 
             $txNumber = 'TRF-' . strtoupper(bin2hex(random_bytes(4)));
 
@@ -568,7 +665,7 @@ class InventoryService {
                     $txNumber,
                     null,
                     date('Y-m-d'),
-                    "Transferred to WH #{$destWarehouseId}",
+                    "Transferred to {$dstLabel}{$note}",
                     $userId
                 );
 
@@ -587,9 +684,14 @@ class InventoryService {
                     $txNumber,
                     null,
                     date('Y-m-d'),
-                    "Transferred from WH #{$sourceWarehouseId}",
+                    "Transferred from {$srcLabel}{$note}",
                     $userId
                 );
+                $movedLines++;
+            }
+
+            if ($movedLines === 0) {
+                throw new InvalidArgumentException("No valid transfer lines (quantity must be greater than zero).");
             }
 
             AuditService::log('STOCK_TRANSFER', 'INVENTORY', $txNumber, ['source' => $sourceWarehouseId, 'dest' => $destWarehouseId], ['items' => $items]);

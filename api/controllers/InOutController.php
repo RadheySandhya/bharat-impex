@@ -6,6 +6,31 @@
 class InOutController {
 
     /**
+     * Allow purchase_inputs to hold Finished Good purchases as well as Child Part (RM) purchases.
+     * Self-healing: only alters the table when the columns are missing.
+     */
+    private static function ensurePurchaseInputsSupportsFG(PDO $db): void {
+        static $done = false;
+        if ($done) return;
+        $done = true;
+        try {
+            $cols = $db->query("
+                SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'purchase_inputs'
+            ")->fetchAll(PDO::FETCH_COLUMN);
+            if (!in_array('material_type', $cols, true)) {
+                $db->exec("ALTER TABLE purchase_inputs ADD COLUMN material_type ENUM('RM','FG') NOT NULL DEFAULT 'RM' AFTER tally_item_name");
+            }
+            if (!in_array('fg_id', $cols, true)) {
+                $db->exec("ALTER TABLE purchase_inputs ADD COLUMN fg_id INT NULL AFTER rm_code, ADD COLUMN fg_code VARCHAR(50) NULL AFTER fg_id");
+                $db->exec("ALTER TABLE purchase_inputs MODIFY rm_id INT NULL, MODIFY rm_code VARCHAR(50) NULL");
+            }
+        } catch (Exception $e) {
+            error_log('purchase_inputs FG upgrade failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Get or create parties (Suppliers & Customers)
      */
     public static function parties(): void {
@@ -149,13 +174,12 @@ class InOutController {
         try {
             $bomStmt = $db->query("
                 SELECT b.fg_id, bi.rm_id, rm.rm_code, rm.material_name, bi.quantity_per_unit, u.unit_code,
-                       COALESCE(stk.quantity, 0) AS current_stock
+                       COALESCE((SELECT SUM(stk.quantity) FROM stock stk WHERE stk.material_type = 'RM' AND stk.material_id = rm.id), 0) AS current_stock
                 FROM boms b
                 JOIN bom_items bi ON bi.bom_id = b.id
                 JOIN raw_materials rm ON bi.rm_id = rm.id
                 JOIN units u ON bi.unit_id = u.id
-                LEFT JOIN stock stk ON stk.material_type = 'RM' AND stk.material_id = rm.id AND stk.warehouse_id = 1
-                WHERE b.status = 'ACTIVE'
+WHERE b.status = 'ACTIVE'
                 ORDER BY b.fg_id, bi.sequence ASC
             ");
             $bomRows = $bomStmt->fetchAll();
@@ -188,11 +212,10 @@ class InOutController {
                 rm.unit_id,
                 u.unit_code,
                 rm.standard_rate AS default_rate,
-                COALESCE(s.quantity, 0) AS current_stock
+                COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.material_type = 'RM' AND s.material_id = rm.id), 0) AS current_stock
             FROM raw_materials rm
             LEFT JOIN units u ON rm.unit_id = u.id
-            LEFT JOIN stock s ON s.material_type = 'RM' AND s.material_id = rm.id AND s.warehouse_id = 1
-            WHERE rm.active = 1 AND rm.deleted_at IS NULL
+WHERE rm.active = 1 AND rm.deleted_at IS NULL
             ORDER BY rm.material_name ASC
         ");
         $rms = $rmStmt->fetchAll();
@@ -214,11 +237,10 @@ class InOutController {
                 fg.unit_id,
                 u.unit_code,
                 fg.selling_price AS default_rate,
-                COALESCE(s.quantity, 0) AS current_stock
+                COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.material_type = 'FG' AND s.material_id = fg.id), 0) AS current_stock
             FROM finished_goods fg
             LEFT JOIN units u ON fg.unit_id = u.id
-            LEFT JOIN stock s ON s.material_type = 'FG' AND s.material_id = fg.id AND s.warehouse_id = 3
-            WHERE fg.active = 1 AND fg.deleted_at IS NULL
+WHERE fg.active = 1 AND fg.deleted_at IS NULL
             ORDER BY fg.product_name ASC
         ");
         $fgs = $fgStmt->fetchAll();
@@ -245,12 +267,11 @@ class InOutController {
                     fg.product_name AS parent_product_name,
                     fg.unit_id,
                     u.unit_code,
-                    COALESCE(stk.quantity, 0) AS current_stock
+                    COALESCE((SELECT SUM(stk.quantity) FROM stock stk WHERE stk.material_type = 'FG' AND stk.material_id = fg.id), 0) AS current_stock
                 FROM sub_skus s
                 JOIN finished_goods fg ON s.parent_fg_id = fg.id
                 LEFT JOIN units u ON fg.unit_id = u.id
-                LEFT JOIN stock stk ON stk.material_type = 'FG' AND stk.material_id = fg.id AND stk.warehouse_id = 3
-                WHERE s.active = 1 AND fg.active = 1 AND fg.deleted_at IS NULL
+WHERE s.active = 1 AND fg.active = 1 AND fg.deleted_at IS NULL
                 ORDER BY s.brand_name ASC, s.sub_sku_name ASC
             ");
             $subSkus = $subSkuStmt->fetchAll();
@@ -304,21 +325,23 @@ class InOutController {
         $search = trim($_GET['search'] ?? '');
 
         $records = [];
+        self::ensurePurchaseInputsSupportsFG($db);
 
-        // 1. IN Records (from purchase_inputs)
+        // 1. IN Records (from purchase_inputs: Child Parts and Finished Goods)
         if ($type === 'ALL' || $type === 'IN') {
             $inSql = "
-                SELECT 
+                SELECT
                     pi.id,
                     'IN' AS transaction_type,
                     pi.purchase_date AS transaction_date,
                     pi.invoice_number,
                     pi.supplier_name AS party_name,
-                    'RM' AS material_type,
-                    pi.rm_id AS item_id,
-                    pi.rm_code AS item_code,
+                    COALESCE(pi.material_type, 'RM') AS material_type,
+                    COALESCE(pi.rm_id, pi.fg_id) AS item_id,
+                    COALESCE(pi.rm_code, pi.fg_code) AS item_code,
                     pi.tally_item_name AS item_name,
                     pi.warehouse_id,
+                    w.warehouse_name,
                     pi.quantity,
                     u.unit_code,
                     pi.rate,
@@ -328,14 +351,15 @@ class InOutController {
                     pi.created_at
                 FROM purchase_inputs pi
                 LEFT JOIN units u ON pi.unit_id = u.id
+                LEFT JOIN warehouses w ON pi.warehouse_id = w.id
                 WHERE 1=1
             ";
             $inParams = [];
             if ($fromDate) { $inSql .= " AND pi.purchase_date >= ?"; $inParams[] = $fromDate; }
             if ($toDate) { $inSql .= " AND pi.purchase_date <= ?"; $inParams[] = $toDate; }
             if ($search) {
-                $inSql .= " AND (pi.supplier_name LIKE ? OR pi.invoice_number LIKE ? OR pi.tally_item_name LIKE ? OR pi.rm_code LIKE ?)";
-                $inParams = array_merge($inParams, ["%$search%", "%$search%", "%$search%", "%$search%"]);
+                $inSql .= " AND (pi.supplier_name LIKE ? OR pi.invoice_number LIKE ? OR pi.tally_item_name LIKE ? OR pi.rm_code LIKE ? OR pi.fg_code LIKE ?)";
+                $inParams = array_merge($inParams, ["%$search%", "%$search%", "%$search%", "%$search%", "%$search%"]);
             }
             $inSql .= " ORDER BY pi.purchase_date DESC, pi.id DESC LIMIT 500";
             $stmt = $db->prepare($inSql);
@@ -357,6 +381,7 @@ class InOutController {
                     si.fg_code AS item_code,
                     si.tally_item_name AS item_name,
                     si.warehouse_id,
+                    w.warehouse_name,
                     si.quantity,
                     u.unit_code,
                     si.rate,
@@ -366,6 +391,7 @@ class InOutController {
                     si.created_at
                 FROM sale_inputs si
                 LEFT JOIN units u ON si.unit_id = u.id
+                LEFT JOIN warehouses w ON si.warehouse_id = w.id
                 WHERE 1=1
             ";
             $outParams = [];
@@ -404,6 +430,7 @@ class InOutController {
         }
 
         $db = Database::getConnection();
+        self::ensurePurchaseInputsSupportsFG($db);
         $db->beginTransaction();
 
         try {
@@ -499,9 +526,9 @@ class InOutController {
                         // Record in purchase_inputs table
                         $db->prepare("
                             INSERT INTO purchase_inputs (
-                                purchase_date, invoice_number, supplier_name, tally_item_name,
+                                purchase_date, invoice_number, supplier_name, tally_item_name, material_type,
                                 rm_id, rm_code, warehouse_id, quantity, unit_id, rate, amount, source, reference_number, created_by, created_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL_ENTRY', ?, ?, NOW())
+                            ) VALUES (?, ?, ?, ?, 'RM', ?, ?, ?, ?, ?, ?, ?, 'MANUAL_ENTRY', ?, ?, NOW())
                         ")->execute([
                             $date, $invoiceNumber, $partyName, $tallyName,
                             $itemId, $rm['rm_code'], $warehouseId, $quantity, $rm['unit_id'],
@@ -527,14 +554,26 @@ class InOutController {
                             $user['id']
                         );
                     } else {
-                        // Inward of FG (e.g. Return or Production Inward)
+                        // Purchase of ready Finished Goods (traded / bought-out SKUs) into the chosen godown
                         $fgStmt = $db->prepare("SELECT fg_code, product_name, unit_id, selling_price FROM finished_goods WHERE id = ?");
                         $fgStmt->execute([$itemId]);
                         $fg = $fgStmt->fetch();
                         if (!$fg) throw new RuntimeException("Finished Good [ID: {$itemId}] not found.");
 
                         $effectiveRate = $rate > 0 ? $rate : (float)$fg['selling_price'];
+                        $amount = round($quantity * $effectiveRate, 2);
                         $warehouseId = InventoryService::getValidWarehouseId((int)($row['warehouse_id'] ?? 0));
+
+                        $db->prepare("
+                            INSERT INTO purchase_inputs (
+                                purchase_date, invoice_number, supplier_name, tally_item_name, material_type,
+                                fg_id, fg_code, warehouse_id, quantity, unit_id, rate, amount, source, created_by, created_at
+                            ) VALUES (?, ?, ?, ?, 'FG', ?, ?, ?, ?, ?, ?, ?, 'MANUAL_ENTRY', ?, NOW())
+                        ")->execute([
+                            $date, $invoiceNumber, $partyName, $fg['product_name'],
+                            $itemId, $fg['fg_code'], $warehouseId, $quantity, $fg['unit_id'],
+                            $effectiveRate, $amount, $user['id']
+                        ]);
 
                         InventoryService::increaseStock(
                             'FG',
@@ -545,12 +584,12 @@ class InOutController {
                             $quantity,
                             $fg['unit_id'],
                             $effectiveRate,
-                            'PRODUCTION_OUTPUT',
+                            'PURCHASE',
                             $invoiceNumber,
                             $invoiceNumber,
                             null,
                             $date,
-                            "FG Inward from {$partyName} (Ref: {$invoiceNumber}) - {$remarks}",
+                            "FG Purchase from {$partyName} (Inv: {$invoiceNumber}) - {$remarks}",
                             $user['id']
                         );
                     }

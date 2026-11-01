@@ -54,14 +54,22 @@ export function Inventory() {
     remarks: '',
   });
 
-  const [transferForm, setTransferForm] = useState({
-    source_warehouse_id: 1,
-    destination_warehouse_id: 2,
-    material_type: 'RM',
-    material_id: '',
+  const newTransferLine = () => ({
+    row_id: `tl_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    key: '',
     quantity: '',
+  });
+
+  const [transferForm, setTransferForm] = useState({
+    source_warehouse_id: '',
+    destination_warehouse_id: '',
+    type_filter: 'ALL',
+    lines: [newTransferLine()],
     remarks: '',
   });
+  const [transferSaving, setTransferSaving] = useState(false);
+  const [recentTransfers, setRecentTransfers] = useState([]);
+  const [imsRefreshKey, setImsRefreshKey] = useState(0);
 
   const [openingForm, setOpeningForm] = useState({
     material_type: 'RM',
@@ -77,12 +85,52 @@ export function Inventory() {
 
   const { success, error } = useToast();
 
+  // Stock rows of the selected source godown (only items that actually have stock there)
+  const sourceStockOptions = React.useMemo(() => {
+    if (!transferForm.source_warehouse_id) return [];
+    return stockList
+      .filter((s) => String(s.warehouse_id) === String(transferForm.source_warehouse_id) && Number(s.quantity) > 0)
+      .map((s) => ({ ...s, key: `${s.material_type}:${s.material_id}` }));
+  }, [stockList, transferForm.source_warehouse_id]);
+
+  const openingItemOptions = React.useMemo(() => {
+    if (openingForm.material_type === 'RM') {
+      return rawMaterials.map((r) => ({ material_id: r.id, material_code: r.rm_code, material_name: r.material_name, unit_id: r.unit_id }));
+    }
+    if (openingForm.material_type === 'FG') {
+      return finishedGoods.map((f) => ({ material_id: f.id, material_code: f.fg_code, material_name: f.product_name, unit_id: f.unit_id }));
+    }
+    const seen = new Set();
+    return stockList
+      .filter((s) => s.material_type === 'SCRAP' && !seen.has(s.material_id) && seen.add(s.material_id))
+      .map((s) => ({ material_id: s.material_id, material_code: s.material_code, material_name: s.material_name, unit_id: s.unit_id }));
+  }, [openingForm.material_type, rawMaterials, finishedGoods, stockList]);
+
+  const updateTransferLine = (idx, patch) => {
+    setTransferForm((prev) => ({
+      ...prev,
+      lines: prev.lines.map((l, i) => (i === idx ? { ...l, ...patch } : l)),
+    }));
+  };
+
+  const loadRecentTransfers = async () => {
+    try {
+      const res = await api.stock.getTransfers(20);
+      setRecentTransfers(res?.data || []);
+    } catch (e) {
+      setRecentTransfers([]);
+    }
+  };
+
+  const refreshAfterStockChange = () => {
+    fetchStock();
+    setImsRefreshKey((k) => k + 1);
+  };
+
   const fetchStock = async () => {
     setLoading(true);
     try {
-      const params = {};
-      if (materialTypeFilter !== 'ALL') params.material_type = materialTypeFilter;
-      const res = await api.stock.getAll(params);
+      const res = await api.stock.getAll({});
       if (res?.data) setStockList(res.data);
     } catch (err) {
       error('Failed to load stock: ' + err.message);
@@ -113,8 +161,15 @@ export function Inventory() {
         api.finishedGoods.getAll()
       ]);
       if (bundleRes?.data) {
-        setWarehouses(bundleRes.data.warehouses || []);
+        const whs = (bundleRes.data.warehouses || []).filter((w) => w.active === undefined || Number(w.active) === 1);
+        setWarehouses(whs);
         setUnits(bundleRes.data.units || []);
+        setTransferForm((prev) => ({
+          ...prev,
+          source_warehouse_id: prev.source_warehouse_id || (whs[0] ? String(whs[0].id) : ''),
+          destination_warehouse_id: prev.destination_warehouse_id || (whs[1] ? String(whs[1].id) : ''),
+        }));
+        setOpeningForm((prev) => ({ ...prev, warehouse_id: whs.some((w) => Number(w.id) === Number(prev.warehouse_id)) ? prev.warehouse_id : (whs[0] ? Number(whs[0].id) : '') }));
       }
       if (rmRes?.data) setRawMaterials(rmRes.data);
       if (fgRes?.data) setFinishedGoods(fgRes.data);
@@ -125,15 +180,19 @@ export function Inventory() {
 
   useEffect(() => {
     fetchMasters();
+    fetchStock();
   }, []);
 
   useEffect(() => {
-    if (activeSubTab === 'stock') {
+    if (isTransferModalOpen) {
       fetchStock();
-    } else {
-      fetchLedger();
+      loadRecentTransfers();
     }
-  }, [activeSubTab, materialTypeFilter]);
+  }, [isTransferModalOpen]);
+
+  useEffect(() => {
+    if (isAdjustModalOpen || isOpeningModalOpen) fetchStock();
+  }, [isAdjustModalOpen, isOpeningModalOpen]);
 
   const handleAdjustSubmit = async (e) => {
     e.preventDefault();
@@ -141,7 +200,7 @@ export function Inventory() {
       await api.stock.adjust(adjustForm);
       success('Stock adjustment executed and ledger updated.');
       setIsAdjustModalOpen(false);
-      fetchStock();
+      refreshAfterStockChange();
     } catch (err) {
       error(err.message || 'Adjustment failed.');
     }
@@ -149,43 +208,52 @@ export function Inventory() {
 
   const handleTransferSubmit = async (e) => {
     e.preventDefault();
+    const { source_warehouse_id: src, destination_warehouse_id: dst } = transferForm;
+    if (!src || !dst) return error('Select both the source and destination godown.');
+    if (String(src) === String(dst)) return error('Source and destination godown cannot be the same.');
+
+    const items = [];
+    for (let i = 0; i < transferForm.lines.length; i++) {
+      const line = transferForm.lines[i];
+      if (!line.key && !line.quantity) continue;
+      const stk = sourceStockOptions.find((s) => s.key === line.key);
+      if (!stk) return error(`Line #${i + 1}: choose an item available in the source godown.`);
+      const qty = Number(line.quantity);
+      if (!qty || qty <= 0) return error(`Line #${i + 1}: enter a quantity greater than zero.`);
+      items.push({ material_type: stk.material_type, material_id: Number(stk.material_id), quantity: qty });
+    }
+    if (items.length === 0) return error('Add at least one item to transfer.');
+
+    setTransferSaving(true);
     try {
-      const selected = stockList.find(
-        (s) => s.material_type === transferForm.material_type && s.material_id == transferForm.material_id
-      );
-      if (!selected) throw new Error('Selected item not found.');
-
-      await api.stock.transfer({
-        source_warehouse_id: Number(transferForm.source_warehouse_id),
-        destination_warehouse_id: Number(transferForm.destination_warehouse_id),
+      const res = await api.stock.transfer({
+        source_warehouse_id: Number(src),
+        destination_warehouse_id: Number(dst),
         remarks: transferForm.remarks,
-        items: [
-          {
-            material_type: selected.material_type,
-            material_id: selected.material_id,
-            material_code: selected.material_code,
-            material_name: selected.material_name,
-            quantity: Number(transferForm.quantity),
-            unit_id: selected.unit_id,
-          },
-        ],
+        items,
       });
-
-      success('Stock transfer between warehouses recorded successfully.');
+      const srcName = warehouses.find((w) => String(w.id) === String(src))?.warehouse_name || 'source';
+      const dstName = warehouses.find((w) => String(w.id) === String(dst))?.warehouse_name || 'destination';
+      success(`Transfer ${res?.data?.transfer_number || ''} done: ${items.length} item(s) moved ${srcName} → ${dstName}.`);
+      setTransferForm((prev) => ({ ...prev, lines: [newTransferLine()], remarks: '' }));
       setIsTransferModalOpen(false);
-      fetchStock();
+      refreshAfterStockChange();
     } catch (err) {
       error(err.message || 'Transfer failed.');
+    } finally {
+      setTransferSaving(false);
     }
   };
 
   const handleOpeningSubmit = async (e) => {
     e.preventDefault();
     try {
+      if (!openingForm.material_id) throw new Error('Select an item.');
+      if (!openingForm.warehouse_id) throw new Error('Select the godown.');
       await api.stock.opening(openingForm);
       success('Opening stock balance recorded into ledger.');
       setIsOpeningModalOpen(false);
-      fetchStock();
+      refreshAfterStockChange();
     } catch (err) {
       error(err.message || 'Opening stock failed.');
     }
@@ -473,7 +541,7 @@ export function Inventory() {
 
 
       {/* Main Table Display */}
-      <IMSTriNagarMaster />
+      <IMSTriNagarMaster key={imsRefreshKey} />
 
       {/* Stock Adjustment Modal */}
       <Modal
@@ -524,10 +592,11 @@ export function Inventory() {
             <div>
               <label className="block text-slate-600 font-semibold mb-1">Select Item from Stock</label>
               <SearchableSelect
-                value={adjustForm.material_id}
+                value={adjustForm.material_id ? `${adjustForm.material_id}:${adjustForm.warehouse_id}` : ''}
                 onChange={(val) => {
+                  const [mid, wid] = String(val).split(':');
                   const item = stockList.find(
-                    (s) => s.material_type === adjustForm.material_type && String(s.material_id) === String(val)
+                    (s) => s.material_type === adjustForm.material_type && String(s.material_id) === mid && String(s.warehouse_id) === wid
                   );
                   if (item) {
                     setAdjustForm({
@@ -549,10 +618,10 @@ export function Inventory() {
                 options={stockList
                   .filter((s) => s.material_type === adjustForm.material_type)
                   .map((s) => ({
-                    value: s.material_id,
+                    value: `${s.material_id}:${s.warehouse_id}`,
                     label: s.material_name,
-                    sublabel: s.material_code,
-                    badge: `Qty: ${s.quantity}`
+                    sublabel: `${s.material_code} • ${s.warehouse_name}`,
+                    badge: `Qty: ${Number(s.quantity).toLocaleString('en-IN')}`
                   }))}
               />
             </div>
@@ -601,11 +670,12 @@ export function Inventory() {
         </form>
       </Modal>
 
-      {/* Stock Transfer Modal */}
+      {/* Stock Transfer Modal (multi-line, godown to godown) */}
       <Modal
         isOpen={isTransferModalOpen}
         onClose={() => setIsTransferModalOpen(false)}
-        title="Stock Transfer Between Warehouses / Godowns"
+        title="Stock Transfer Between Godowns / Warehouses"
+        maxWidth="max-w-4xl"
         footer={
           <>
             <button
@@ -618,95 +688,186 @@ export function Inventory() {
             <button
               type="submit"
               form="transfer-form"
-              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-xs font-bold text-white shadow-xs"
+              disabled={transferSaving}
+              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-xs font-bold text-white shadow-xs"
             >
-              Confirm Transfer
+              {transferSaving ? 'Transferring...' : 'Confirm Transfer'}
             </button>
           </>
         }
       >
         <form id="transfer-form" onSubmit={handleTransferSubmit} className="space-y-4 text-xs">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-slate-600 font-semibold mb-1">Source Warehouse (From)</label>
-              <SearchableSelect
-                value={transferForm.source_warehouse_id}
-                onChange={(val) => setTransferForm({ ...transferForm, source_warehouse_id: val })}
-                placeholder="-- Select Source Warehouse --"
-                searchPlaceholder="Search warehouse..."
-                className="w-full"
-                buttonClassName="rounded-xl px-3 py-2 text-xs border-slate-300"
-                options={warehouses.map((w) => ({
-                  value: w.id,
-                  label: w.warehouse_name,
-                  sublabel: w.warehouse_code
-                }))}
-              />
+          {warehouses.length < 2 && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <span>You need at least two active godowns. Add them in <strong>Masters &amp; Settings → Warehouse Master</strong>.</span>
             </div>
+          )}
 
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-3 items-end">
             <div>
-              <label className="block text-slate-600 font-semibold mb-1">Destination Warehouse (To)</label>
-              <SearchableSelect
+              <label className="block text-slate-600 font-semibold mb-1">From Godown (Source)</label>
+              <select
+                value={transferForm.source_warehouse_id}
+                onChange={(e) => setTransferForm({ ...transferForm, source_warehouse_id: e.target.value, lines: [newTransferLine()] })}
+                className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs font-semibold focus:ring-2 focus:ring-slate-900/10"
+                required
+              >
+                <option value="">-- Select Source Godown --</option>
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>{w.warehouse_name} ({w.warehouse_code})</option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => setTransferForm({
+                ...transferForm,
+                source_warehouse_id: transferForm.destination_warehouse_id,
+                destination_warehouse_id: transferForm.source_warehouse_id,
+                lines: [newTransferLine()],
+              })}
+              className="h-9 px-3 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold"
+              title="Swap source and destination"
+            >
+              ⇄
+            </button>
+            <div>
+              <label className="block text-slate-600 font-semibold mb-1">To Godown (Destination)</label>
+              <select
                 value={transferForm.destination_warehouse_id}
-                onChange={(val) => setTransferForm({ ...transferForm, destination_warehouse_id: val })}
-                placeholder="-- Select Destination Warehouse --"
-                searchPlaceholder="Search warehouse..."
-                className="w-full"
-                buttonClassName="rounded-xl px-3 py-2 text-xs border-slate-300"
-                options={warehouses.map((w) => ({
-                  value: w.id,
-                  label: w.warehouse_name,
-                  sublabel: w.warehouse_code
-                }))}
-              />
+                onChange={(e) => setTransferForm({ ...transferForm, destination_warehouse_id: e.target.value })}
+                className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs font-semibold focus:ring-2 focus:ring-slate-900/10"
+                required
+              >
+                <option value="">-- Select Destination Godown --</option>
+                {warehouses
+                  .filter((w) => String(w.id) !== String(transferForm.source_warehouse_id))
+                  .map((w) => (
+                    <option key={w.id} value={w.id}>{w.warehouse_name} ({w.warehouse_code})</option>
+                  ))}
+              </select>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-slate-600 font-semibold mb-1">Select Material to Transfer</label>
-              <SearchableSelect
-                value={transferForm.material_id}
-                onChange={(val) => setTransferForm({ ...transferForm, material_id: val })}
-                placeholder="-- Choose Material --"
-                searchPlaceholder="Search material by name..."
-                className="w-full"
-                buttonClassName="rounded-xl px-3 py-2 text-xs border-slate-300"
-                required
-                options={stockList
-                  .filter((s) => s.warehouse_id == transferForm.source_warehouse_id)
-                  .map((s) => ({
-                    value: s.material_id,
-                    label: s.material_name,
-                    sublabel: s.material_type,
-                    badge: `Avail: ${s.available_quantity}`
-                  }))}
-              />
+          {/* Transfer lines */}
+          <div className="border border-slate-200 rounded-xl overflow-hidden">
+            <div className="flex items-center justify-between bg-slate-50 px-3 py-2 border-b border-slate-200">
+              <span className="font-bold text-slate-700">Items to move ({transferForm.lines.length})</span>
+              <div className="flex items-center gap-2">
+                <select
+                  value={transferForm.type_filter}
+                  onChange={(e) => setTransferForm({ ...transferForm, type_filter: e.target.value })}
+                  className="rounded-lg px-2 py-1 bg-white border border-slate-300 text-[11px] font-semibold"
+                  title="Filter item list"
+                >
+                  <option value="ALL">All types</option>
+                  <option value="RM">Child Parts (RM)</option>
+                  <option value="FG">Finished Goods (FG)</option>
+                  <option value="SCRAP">Scrap</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setTransferForm({ ...transferForm, lines: [...transferForm.lines, newTransferLine()] })}
+                  className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 font-bold text-slate-700"
+                >
+                  + Add Item
+                </button>
+              </div>
             </div>
-
-            <div>
-              <label className="block text-slate-600 font-semibold mb-1">Transfer Quantity</label>
-              <input
-                type="number"
-                step="0.001"
-                value={transferForm.quantity}
-                onChange={(e) => setTransferForm({ ...transferForm, quantity: e.target.value })}
-                placeholder="Quantity to move"
-                className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
-                required
-              />
+            <div className="divide-y divide-slate-100">
+              {transferForm.lines.map((line, idx) => {
+                const src = sourceStockOptions.find((s) => s.key === line.key);
+                const avail = src ? Number(src.available_quantity ?? src.quantity) : 0;
+                const over = src && Number(line.quantity) > avail;
+                return (
+                  <div key={line.row_id} className="grid grid-cols-[1fr_130px_32px] gap-2 items-start p-2.5">
+                    <div>
+                      <SearchableSelect
+                        value={line.key}
+                        onChange={(val) => updateTransferLine(idx, { key: val })}
+                        placeholder={transferForm.source_warehouse_id ? '-- Choose item in source godown --' : 'Select source godown first'}
+                        searchPlaceholder="Search by name or code..."
+                        className="w-full"
+                        buttonClassName="rounded-xl px-3 py-2 text-xs border-slate-300"
+                        options={sourceStockOptions
+                          .filter((s) => transferForm.type_filter === 'ALL' || s.material_type === transferForm.type_filter)
+                          .map((s) => ({
+                            value: s.key,
+                            label: s.material_name,
+                            sublabel: `${s.material_code} • ${s.material_type === 'RM' ? 'Child Part' : s.material_type === 'FG' ? 'Finished Good' : 'Scrap'}`,
+                            badge: `Avail: ${Number(s.available_quantity ?? s.quantity).toLocaleString('en-IN')} ${s.unit_code || ''}`,
+                          }))}
+                      />
+                      {src && (
+                        <p className={`text-[10px] mt-1 font-semibold ${over ? 'text-rose-600' : 'text-slate-500'}`}>
+                          Available in source: {avail.toLocaleString('en-IN')} {src.unit_code}
+                          {over ? ' — quantity exceeds available stock' : ''}
+                        </p>
+                      )}
+                    </div>
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0.001"
+                      value={line.quantity}
+                      onChange={(e) => updateTransferLine(idx, { quantity: e.target.value })}
+                      placeholder="Qty"
+                      className={`w-full rounded-xl px-3 py-2 bg-white border text-slate-900 text-xs font-mono font-bold focus:ring-2 focus:ring-slate-900/10 ${over ? 'border-rose-400' : 'border-slate-300'}`}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setTransferForm({
+                        ...transferForm,
+                        lines: transferForm.lines.length > 1 ? transferForm.lines.filter((_, i) => i !== idx) : [newTransferLine()],
+                      })}
+                      className="h-9 w-8 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 font-bold"
+                      title="Remove line"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
+              {transferForm.source_warehouse_id && sourceStockOptions.length === 0 && (
+                <p className="p-3 text-slate-500">No stock available in this godown.</p>
+              )}
             </div>
           </div>
 
           <div>
-            <label className="block text-slate-600 font-semibold mb-1">Transfer Note / Dispatch Ref</label>
+            <label className="block text-slate-600 font-semibold mb-1">Transfer Note / Vehicle / Challan Ref</label>
             <input
               type="text"
               value={transferForm.remarks}
               onChange={(e) => setTransferForm({ ...transferForm, remarks: e.target.value })}
-              placeholder="e.g. Shopfloor replenishment batch #24"
+              placeholder="e.g. Bhiwadi to Mayapuri, Challan #24, Vehicle HR-55-1234"
               className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
             />
+          </div>
+
+          {/* Recent transfers */}
+          <div className="border-t border-slate-200 pt-3">
+            <p className="font-bold text-slate-700 mb-2">Recent Transfers</p>
+            {recentTransfers.length === 0 ? (
+              <p className="text-slate-400">No transfers recorded yet.</p>
+            ) : (
+              <div className="max-h-48 overflow-y-auto space-y-1.5">
+                {recentTransfers.map((t) => (
+                  <div key={t.id} className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono font-bold text-blue-700">{t.transfer_number}</span>
+                      <span className="text-slate-600 whitespace-nowrap">{t.source_warehouse_name} → {t.destination_warehouse_name}</span>
+                    </div>
+                    <div className="text-slate-500 text-[11px] truncate">
+                      {(t.items || []).map((it) => `${it.material_name || it.material_code} × ${Number(it.quantity).toLocaleString('en-IN')} ${it.unit_code || ''}`).join(', ')}
+                    </div>
+                    <span className="text-[10px] text-slate-400 whitespace-nowrap">{t.transfer_date}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </form>
       </Modal>
@@ -741,7 +902,7 @@ export function Inventory() {
               <label className="block text-slate-600 font-semibold mb-1">Material Type</label>
               <select
                 value={openingForm.material_type}
-                onChange={(e) => setOpeningForm({ ...openingForm, material_type: e.target.value })}
+                onChange={(e) => setOpeningForm({ ...openingForm, material_type: e.target.value, material_id: '', material_code: '', material_name: '' })}
                 className="w-full rounded-xl px-3 py-2 bg-white border border-slate-300 text-slate-900 text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
               >
                 <option value="RM">Child Part</option>
@@ -774,9 +935,7 @@ export function Inventory() {
               <SearchableSelect
                 value={openingForm.material_id}
                 onChange={(val) => {
-                  const sel = stockList.find(
-                    (s) => s.material_type === openingForm.material_type && String(s.material_id) === String(val)
-                  );
+                  const sel = openingItemOptions.find((s) => String(s.material_id) === String(val));
                   if (sel) {
                     setOpeningForm({
                       ...openingForm,
@@ -792,9 +951,7 @@ export function Inventory() {
                 className="w-full"
                 buttonClassName="rounded-xl px-3 py-2 text-xs border-slate-300"
                 required
-                options={stockList
-                  .filter((s) => s.material_type === openingForm.material_type)
-                  .map((s) => ({
+                options={openingItemOptions.map((s) => ({
                     value: s.material_id,
                     label: s.material_name,
                     sublabel: s.material_code
@@ -834,7 +991,8 @@ export function Inventory() {
       <BulkStockUploadModal
         isOpen={isBulkModalOpen}
         onClose={() => setIsBulkModalOpen(false)}
-        onStockUpdated={() => fetchStock()}
+        onStockUpdated={() => refreshAfterStockChange()}
+        warehouses={warehouses}
         rawMaterials={rawMaterials}
         finishedGoods={finishedGoods}
       />

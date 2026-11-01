@@ -199,27 +199,114 @@ class StockController {
     }
 
     /**
-     * Submit Stock Transfer
+     * Submit Stock Transfer (one or many lines) from one godown to another
      */
     public static function transfer(): void {
         $user = Auth::requireAuth();
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $db = Database::getConnection();
 
         $sourceWh = (int)($input['source_warehouse_id'] ?? 0);
         $destWh = (int)($input['destination_warehouse_id'] ?? 0);
         $items = $input['items'] ?? [];
         $remarks = trim($input['remarks'] ?? '');
 
-        if (!$sourceWh || !$destWh || empty($items)) {
+        if (!$sourceWh || !$destWh || empty($items) || !is_array($items)) {
             Response::error('Source, Destination warehouse and items are required.', null, 400);
         }
 
+        // Resolve code / name / unit on the server so the client only needs type + id + qty
+        $resolved = [];
+        foreach ($items as $idx => $it) {
+            $type = strtoupper(trim((string)($it['material_type'] ?? '')));
+            $matId = (int)($it['material_id'] ?? 0);
+            $qty = (float)($it['quantity'] ?? 0);
+            if (!in_array($type, ['RM', 'FG', 'SCRAP'], true) || $matId <= 0) {
+                Response::error('Line #' . ($idx + 1) . ': select a valid item.', null, 400);
+            }
+            if ($qty <= 0) {
+                Response::error('Line #' . ($idx + 1) . ': quantity must be greater than zero.', null, 400);
+            }
+            $stk = $db->prepare("SELECT material_code, material_name, unit_id FROM stock WHERE material_type = ? AND material_id = ? AND warehouse_id = ?");
+            $stk->execute([$type, $matId, $sourceWh]);
+            $row = $stk->fetch();
+            if (!$row) {
+                Response::error('Line #' . ($idx + 1) . ': item has no stock in the source godown.', null, 400);
+            }
+            $resolved[] = [
+                'material_type' => $type,
+                'material_id'   => $matId,
+                'material_code' => $row['material_code'],
+                'material_name' => $row['material_name'],
+                'quantity'      => $qty,
+                'unit_id'       => (int)$row['unit_id'],
+            ];
+        }
+
         try {
-            $txNumber = InventoryService::transferStock($sourceWh, $destWh, $items, $remarks, $user['id']);
+            $txNumber = InventoryService::transferStock($sourceWh, $destWh, $resolved, $remarks, $user['id']);
             Response::success(['transfer_number' => $txNumber], 'Stock transfer completed successfully.');
         } catch (Exception $e) {
             Response::error($e->getMessage(), null, 400);
         }
+    }
+
+    /**
+     * Recent warehouse-to-warehouse transfers with their lines
+     */
+    public static function transfers(): void {
+        Auth::requireAuth();
+        $db = Database::getConnection();
+        $limit = min(200, max(5, (int)($_GET['limit'] ?? 50)));
+
+        $rows = $db->query("
+            SELECT st.id, st.transfer_number, st.transfer_date, st.status, st.remarks, st.created_at,
+                   st.source_warehouse_id, st.destination_warehouse_id,
+                   ws.warehouse_name AS source_warehouse_name, wd.warehouse_name AS destination_warehouse_name,
+                   u.full_name AS created_by_name
+            FROM stock_transfers st
+            JOIN warehouses ws ON ws.id = st.source_warehouse_id
+            JOIN warehouses wd ON wd.id = st.destination_warehouse_id
+            LEFT JOIN users u ON u.id = st.created_by
+            ORDER BY st.id DESC
+            LIMIT {$limit}
+        ")->fetchAll();
+
+        if ($rows) {
+            $ids = array_column($rows, 'id');
+            $ph = implode(',', array_fill(0, count($ids), '?'));
+            $itStmt = $db->prepare("
+                SELECT sti.transfer_id, sti.material_type, sti.material_id, sti.quantity, un.unit_code,
+                       CASE
+                           WHEN sti.material_type = 'RM' THEN rm.material_name
+                           WHEN sti.material_type = 'FG' THEN fg.product_name
+                           WHEN sti.material_type = 'SCRAP' THEN sm.scrap_name
+                       END AS material_name,
+                       CASE
+                           WHEN sti.material_type = 'RM' THEN rm.rm_code
+                           WHEN sti.material_type = 'FG' THEN fg.fg_code
+                           WHEN sti.material_type = 'SCRAP' THEN sm.scrap_code
+                       END AS material_code
+                FROM stock_transfer_items sti
+                LEFT JOIN units un ON un.id = sti.unit_id
+                LEFT JOIN raw_materials rm ON sti.material_type = 'RM' AND rm.id = sti.material_id
+                LEFT JOIN finished_goods fg ON sti.material_type = 'FG' AND fg.id = sti.material_id
+                LEFT JOIN scrap_materials sm ON sti.material_type = 'SCRAP' AND sm.id = sti.material_id
+                WHERE sti.transfer_id IN ({$ph})
+                ORDER BY sti.id ASC
+            ");
+            $itStmt->execute($ids);
+            $byTransfer = [];
+            foreach ($itStmt->fetchAll() as $it) {
+                $byTransfer[$it['transfer_id']][] = $it;
+            }
+            foreach ($rows as &$r) {
+                $r['items'] = $byTransfer[$r['id']] ?? [];
+            }
+            unset($r);
+        }
+
+        Response::success($rows);
     }
 
     /**
@@ -270,27 +357,34 @@ class StockController {
 
     /**
      * Bulk Import / Update Stock for Raw Materials & Finished Goods
-     * Supports updating existing items or auto-creating new items if ID is blank.
+     * - The quantity given is the new physical balance of the item IN THE CHOSEN GODOWN.
+     * - Godown comes from a per-row "warehouse"/"godown" column (code or name), else the
+     *   warehouse_id selected in the upload screen, else the default store for that item type.
+     * - Existing items are matched by ID, then code, then exact name; unmatched rows create new items.
+     * - Every change is written to the stock ledger as OPENING / ADJUSTMENT_IN / ADJUSTMENT_OUT.
      */
     public static function bulkImport(): void {
         $user = Auth::requireAuth();
         $db = Database::getConnection();
 
+        $selectedWarehouseId = 0;
+
         // Support both JSON payload and multipart CSV file upload
         $items = [];
         if (!empty($_FILES['file']['tmp_name'])) {
+            $selectedWarehouseId = (int)($_POST['warehouse_id'] ?? 0);
             $handle = fopen($_FILES['file']['tmp_name'], 'r');
             if ($handle) {
                 $header = fgetcsv($handle);
-                // Clean BOM
+                // Clean UTF-8 BOM
                 if ($header && isset($header[0])) {
-                    $header[0] = preg_replace('/[\x00-\x1F\x80-\xFF]/', '', $header[0]);
+                    $header[0] = preg_replace('/^\xEF\xBB\xBF/', '', $header[0]);
                 }
-                $headers = array_map(function($h) { return strtolower(trim($h)); }, $header ?: []);
-                
+                $headers = array_map(function($h) { return strtolower(trim((string)$h)); }, $header ?: []);
+
                 // Map columns
                 $idCol = -1; $typeCol = -1; $codeCol = -1; $nameCol = -1; $qtyCol = -1; $unitCol = -1; $rateCol = -1;
-                $minCol = -1; $maxCol = -1;
+                $minCol = -1; $maxCol = -1; $whCol = -1;
                 foreach ($headers as $idx => $h) {
                     if (in_array($h, ['id', 'item_id', 'item id'])) $idCol = $idx;
                     elseif (in_array($h, ['type', 'material_type', 'item type', 'material type'])) $typeCol = $idx;
@@ -301,26 +395,29 @@ class StockController {
                     elseif (in_array($h, ['rate', 'price', 'standard_rate', 'selling_price', 'unit_price'])) $rateCol = $idx;
                     elseif (in_array($h, ['min level', 'min level (reorder)', 'min_level', 'minimum_stock', 'reorder_level', 'reorder level', 'min stock'])) $minCol = $idx;
                     elseif (in_array($h, ['max level', 'max level (max stock)', 'max_level', 'maximum_stock', 'max stock', 'max stock quantity'])) $maxCol = $idx;
+                    elseif (in_array($h, ['warehouse', 'godown', 'warehouse_code', 'warehouse code', 'warehouse_name', 'warehouse name', 'location'])) $whCol = $idx;
                 }
 
                 while (($row = fgetcsv($handle)) !== false) {
-                    if (empty(array_filter($row))) continue;
+                    if (empty(array_filter($row, fn($v) => trim((string)$v) !== ''))) continue;
                     $items[] = [
                         'id'            => $idCol !== -1 ? trim($row[$idCol] ?? '') : '',
                         'material_type' => $typeCol !== -1 ? trim($row[$typeCol] ?? '') : '',
                         'material_code' => $codeCol !== -1 ? trim($row[$codeCol] ?? '') : '',
                         'material_name' => $nameCol !== -1 ? trim($row[$nameCol] ?? '') : '',
-                        'quantity'      => $qtyCol !== -1 ? (float)str_replace([',', ' '], '', $row[$qtyCol] ?? '0') : 0,
+                        'quantity'      => $qtyCol !== -1 ? trim($row[$qtyCol] ?? '0') : '0',
                         'unit_code'     => $unitCol !== -1 ? trim($row[$unitCol] ?? 'PCS') : 'PCS',
-                        'rate'          => $rateCol !== -1 ? (float)str_replace([',', ' '], '', $row[$rateCol] ?? '0') : 0,
-                        'reorder_level' => $minCol !== -1 ? (float)str_replace([',', ' '], '', $row[$minCol] ?? '0') : 0,
-                        'maximum_stock' => $maxCol !== -1 ? (float)str_replace([',', ' '], '', $row[$maxCol] ?? '0') : 0,
+                        'rate'          => $rateCol !== -1 ? trim($row[$rateCol] ?? '0') : '0',
+                        'reorder_level' => $minCol !== -1 ? trim($row[$minCol] ?? '0') : '0',
+                        'maximum_stock' => $maxCol !== -1 ? trim($row[$maxCol] ?? '0') : '0',
+                        'warehouse'     => $whCol !== -1 ? trim($row[$whCol] ?? '') : '',
                     ];
                 }
                 fclose($handle);
             }
         } else {
             $input = json_decode(file_get_contents('php://input'), true) ?? [];
+            $selectedWarehouseId = (int)($input['warehouse_id'] ?? 0);
             $items = $input['items'] ?? $input;
         }
 
@@ -328,35 +425,66 @@ class StockController {
             Response::error('No items provided for bulk stock update.', null, 400);
         }
 
+        $num = function ($v): float {
+            return (float)preg_replace('/[^0-9.\-]/', '', (string)($v ?? '0'));
+        };
+
+        // Pre-fetch units (fall back to PCS, then to whatever unit exists so the FK never fails)
+        $unitMap = [];
+        foreach ($db->query("SELECT id, UPPER(unit_code) AS ucode FROM units")->fetchAll() as $u) {
+            $unitMap[$u['ucode']] = (int)$u['id'];
+        }
+        $fallbackUnitId = $unitMap['PCS'] ?? ($unitMap ? (int)reset($unitMap) : 1);
+
+        // Pre-fetch active warehouses for code / name lookup
+        $whByKey = [];
+        $whList = $db->query("SELECT id, warehouse_code, warehouse_name FROM warehouses WHERE active = 1")->fetchAll();
+        foreach ($whList as $w) {
+            $whByKey[strtoupper(trim($w['warehouse_code']))] = (int)$w['id'];
+            $whByKey[strtoupper(trim($w['warehouse_name']))] = (int)$w['id'];
+            $whByKey[(string)$w['id']] = (int)$w['id'];
+        }
+        $whNames = array_column($whList, 'warehouse_name', 'id');
+        if ($selectedWarehouseId && !isset($whNames[$selectedWarehouseId])) {
+            Response::error('Selected godown / warehouse is invalid or inactive.', null, 400);
+        }
+
+        $typeAliases = [
+            'RAW MATERIAL' => 'RM', 'CHILD PART' => 'RM', 'RAW' => 'RM',
+            'FINISHED GOOD' => 'FG', 'FINISHED GOODS' => 'FG', 'SKU' => 'FG'
+        ];
+
         $db->beginTransaction();
         try {
             $createdCount = 0;
             $updatedCount = 0;
             $processed = [];
+            $rowErrors = [];
 
-            // Pre-fetch unit IDs
-            $unitMap = [];
-            $uStmt = $db->query("SELECT id, UPPER(unit_code) as ucode FROM units");
-            while ($u = $uStmt->fetch()) {
-                $unitMap[$u['ucode']] = (int)$u['id'];
-            }
-
-            foreach ($items as $item) {
+            foreach ($items as $rowIdx => $item) {
+                $lineNo = $rowIdx + 1;
                 $rawId = trim((string)($item['id'] ?? ''));
                 $rawCode = strtoupper(trim((string)($item['material_code'] ?? $item['code'] ?? '')));
                 $rawName = trim((string)($item['material_name'] ?? $item['item_name'] ?? $item['product_name'] ?? ''));
                 $rawType = strtoupper(trim((string)($item['material_type'] ?? $item['type'] ?? '')));
-                $rawQty = (float)($item['quantity'] ?? $item['qty'] ?? $item['stock'] ?? 0);
-                $rawRate = (float)($item['rate'] ?? $item['unit_price'] ?? $item['standard_rate'] ?? 0);
-                $rawMinStock = (float)($item['reorder_level'] ?? $item['min_level'] ?? $item['minimum_stock'] ?? 0);
-                $rawMaxStock = (float)($item['maximum_stock'] ?? $item['max_level'] ?? $item['max_stock'] ?? 0);
-                $uCode = strtoupper(trim((string)($item['unit_code'] ?? $item['unit'] ?? 'PCS')));
-                $unitId = $unitMap[$uCode] ?? 1; // Default to PCS (1)
+                $rawQty = round($num($item['quantity'] ?? $item['qty'] ?? $item['stock'] ?? 0), 3);
+                $rawRate = $num($item['rate'] ?? $item['unit_price'] ?? $item['standard_rate'] ?? 0);
+                $rawMinStock = $num($item['reorder_level'] ?? $item['min_level'] ?? $item['minimum_stock'] ?? 0);
+                $rawMaxStock = $num($item['maximum_stock'] ?? $item['max_level'] ?? $item['max_stock'] ?? 0);
+                $uCode = strtoupper(trim((string)($item['unit_code'] ?? $item['unit'] ?? 'PCS'))) ?: 'PCS';
+                $unitId = $unitMap[$uCode] ?? $fallbackUnitId;
+                $rawWh = strtoupper(trim((string)($item['warehouse'] ?? $item['godown'] ?? $item['warehouse_code'] ?? $item['warehouse_id'] ?? '')));
 
-                if (empty($rawName) && empty($rawCode)) continue;
+                if ($rawName === '' && $rawCode === '' && $rawId === '') continue;
+                if ($rawQty < 0) {
+                    $rowErrors[] = "Row {$lineNo}: quantity cannot be negative.";
+                    continue;
+                }
+
+                if (isset($typeAliases[$rawType])) $rawType = $typeAliases[$rawType];
 
                 // Infer type if not specified
-                if (empty($rawType) || !in_array($rawType, ['RM', 'FG'])) {
+                if (!in_array($rawType, ['RM', 'FG'], true)) {
                     if (str_starts_with($rawCode, 'RM-') || stripos($rawName, 'brass rod') !== false || stripos($rawName, 'copper') !== false || stripos($rawName, 'ingot') !== false || stripos($rawName, 'cartridge') !== false) {
                         $rawType = 'RM';
                     } else {
@@ -364,151 +492,147 @@ class StockController {
                     }
                 }
 
+                $table = $rawType === 'RM' ? 'raw_materials' : 'finished_goods';
+                $codeField = $rawType === 'RM' ? 'rm_code' : 'fg_code';
+                $nameField = $rawType === 'RM' ? 'material_name' : 'product_name';
+                $rateField = $rawType === 'RM' ? 'standard_rate' : 'selling_price';
+
+                // Resolve godown for this row
+                if ($rawWh !== '' && $rawWh !== '0') {
+                    if (!isset($whByKey[$rawWh])) {
+                        $rowErrors[] = "Row {$lineNo}: godown '{$rawWh}' not found.";
+                        continue;
+                    }
+                    $warehouseId = $whByKey[$rawWh];
+                } elseif ($selectedWarehouseId) {
+                    $warehouseId = $selectedWarehouseId;
+                } else {
+                    $warehouseId = InventoryService::getValidWarehouseId($rawType === 'RM' ? 1 : 3);
+                }
+
                 $itemId = null;
                 $itemCode = null;
+                $itemName = $rawName;
                 $isNew = false;
 
-                if (!empty($rawId) && is_numeric($rawId) && (int)$rawId > 0) {
-                    $checkTable = $rawType === 'RM' ? 'raw_materials' : 'finished_goods';
-                    $chk = $db->prepare("SELECT id, " . ($rawType === 'RM' ? 'rm_code' : 'fg_code') . " as code FROM {$checkTable} WHERE id = ?");
-                    $chk->execute([(int)$rawId]);
-                    $existing = $chk->fetch();
-                    if ($existing) {
+                // Match existing item: ID, then code, then exact name
+                $lookups = [];
+                if ($rawId !== '' && ctype_digit($rawId) && (int)$rawId > 0) $lookups[] = ['id', (int)$rawId];
+                if ($rawCode !== '') $lookups[] = [$codeField, $rawCode];
+                if ($rawName !== '') $lookups[] = [$nameField, $rawName];
+                foreach ($lookups as [$field, $value]) {
+                    $chk = $db->prepare("SELECT id, {$codeField} AS code, {$nameField} AS name FROM {$table} WHERE {$field} = ? AND deleted_at IS NULL LIMIT 1");
+                    $chk->execute([$value]);
+                    if ($existing = $chk->fetch()) {
                         $itemId = (int)$existing['id'];
                         $itemCode = $existing['code'];
+                        $itemName = $rawName !== '' ? $rawName : $existing['name'];
+                        break;
                     }
                 }
 
-                // If no ID matched, try matching by code
-                if (!$itemId && !empty($rawCode)) {
-                    $checkTable = $rawType === 'RM' ? 'raw_materials' : 'finished_goods';
-                    $chk = $db->prepare("SELECT id, " . ($rawType === 'RM' ? 'rm_code' : 'fg_code') . " as code FROM {$checkTable} WHERE " . ($rawType === 'RM' ? 'rm_code' : 'fg_code') . " = ?");
-                    $chk->execute([$rawCode]);
-                    $existing = $chk->fetch();
-                    if ($existing) {
-                        $itemId = (int)$existing['id'];
-                        $itemCode = $existing['code'];
-                    }
-                }
-
-                // If still not found or ID is blank: AUTO-CREATE NEW ITEM!
+                // Not found: AUTO-CREATE NEW ITEM with a code that is guaranteed unused
                 if (!$itemId) {
                     $isNew = true;
+                    $prefix = $rawType === 'RM' ? 'RM-' : 'FG-';
+                    $codeChk = $db->prepare("SELECT COUNT(*) FROM {$table} WHERE {$codeField} = ?");
+                    $itemCode = '';
+                    if ($rawCode !== '') {
+                        $codeChk->execute([$rawCode]);
+                        if ((int)$codeChk->fetchColumn() === 0) $itemCode = $rawCode;
+                    }
+                    if ($itemCode === '') {
+                        $seq = (int)$db->query("SELECT COALESCE(MAX(id), 0) FROM {$table}")->fetchColumn() + 1;
+                        do {
+                            $itemCode = $prefix . str_pad((string)$seq, 6, '0', STR_PAD_LEFT);
+                            $codeChk->execute([$itemCode]);
+                            $seq++;
+                        } while ((int)$codeChk->fetchColumn() > 0);
+                    }
+                    $itemName = $rawName !== '' ? $rawName : (($rawType === 'RM' ? 'Raw Material ' : 'Finished Good ') . $itemCode);
+
                     if ($rawType === 'RM') {
-                        $seqStmt = $db->query("SELECT COALESCE(MAX(id), 0) FROM raw_materials");
-                        $nextSeq = (int)$seqStmt->fetchColumn() + 1;
-                        $itemCode = 'RM-' . str_pad($nextSeq, 6, '0', STR_PAD_LEFT);
-                        $ins = $db->prepare("
+                        $db->prepare("
                             INSERT INTO raw_materials (rm_code, material_name, standard_rate, minimum_stock, reorder_level, maximum_stock, unit_id, purchase_unit_id, conversion_factor, created_by, created_at)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, ?, NOW())
-                        ");
-                        $ins->execute([
-                            $itemCode, 
-                            $rawName ?: ('Raw Material ' . $itemCode), 
-                            $rawRate, 
-                            $rawMinStock, 
-                            $rawMinStock, 
-                            $rawMaxStock, 
-                            $unitId, 
-                            $unitId, 
-                            $user['id']
-                        ]);
-                        $itemId = (int)$db->lastInsertId();
+                        ")->execute([$itemCode, $itemName, $rawRate, $rawMinStock, $rawMinStock, $rawMaxStock, $unitId, $unitId, $user['id']]);
                     } else {
-                        $seqStmt = $db->query("SELECT COALESCE(MAX(id), 0) FROM finished_goods");
-                        $nextSeq = (int)$seqStmt->fetchColumn() + 1;
-                        $itemCode = 'FG-' . str_pad($nextSeq, 6, '0', STR_PAD_LEFT);
-                        $ins = $db->prepare("
+                        $db->prepare("
                             INSERT INTO finished_goods (fg_code, product_name, selling_price, minimum_stock, reorder_level, maximum_stock, unit_id, created_by, created_at)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
-                        ");
-                        $ins->execute([
-                            $itemCode, 
-                            $rawName ?: ('Finished Good ' . $itemCode), 
-                            $rawRate, 
-                            $rawMinStock, 
-                            $rawMinStock, 
-                            $rawMaxStock, 
-                            $unitId, 
-                            $user['id']
-                        ]);
-                        $itemId = (int)$db->lastInsertId();
+                        ")->execute([$itemCode, $itemName, $rawRate, $rawMinStock, $rawMinStock, $rawMaxStock, $unitId, $user['id']]);
                     }
+                    $itemId = (int)$db->lastInsertId();
                     $createdCount++;
                 } else {
                     $updatedCount++;
-                    // Update name, rate, min/reorder level, max level if provided
-                    if (!empty($rawName)) {
-                        $checkTable = $rawType === 'RM' ? 'raw_materials' : 'finished_goods';
-                        $nameField = $rawType === 'RM' ? 'material_name' : 'product_name';
-                        $rateField = $rawType === 'RM' ? 'standard_rate' : 'selling_price';
-                        $upd = $db->prepare("
-                            UPDATE {$checkTable} 
-                            SET {$nameField} = ?, 
-                                {$rateField} = COALESCE(NULLIF(?, 0), {$rateField}),
-                                reorder_level = CASE WHEN ? > 0 THEN ? ELSE reorder_level END,
-                                minimum_stock = CASE WHEN ? > 0 THEN ? ELSE minimum_stock END,
-                                maximum_stock = CASE WHEN ? > 0 THEN ? ELSE maximum_stock END,
-                                updated_at = NOW() 
-                            WHERE id = ?
-                        ");
-                        $upd->execute([
-                            $rawName, 
-                            $rawRate, 
-                            $rawMinStock, 
-                            $rawMinStock, 
-                            $rawMinStock, 
-                            $rawMinStock, 
-                            $rawMaxStock, 
-                            $rawMaxStock, 
-                            $itemId
-                        ]);
-                    }
+                    $db->prepare("
+                        UPDATE {$table}
+                        SET {$nameField} = ?,
+                            {$rateField} = CASE WHEN ? > 0 THEN ? ELSE {$rateField} END,
+                            reorder_level = CASE WHEN ? > 0 THEN ? ELSE reorder_level END,
+                            minimum_stock = CASE WHEN ? > 0 THEN ? ELSE minimum_stock END,
+                            maximum_stock = CASE WHEN ? > 0 THEN ? ELSE maximum_stock END,
+                            updated_at = NOW()
+                        WHERE id = ?
+                    ")->execute([$itemName, $rawRate, $rawRate, $rawMinStock, $rawMinStock, $rawMinStock, $rawMinStock, $rawMaxStock, $rawMaxStock, $itemId]);
                 }
 
-                // Now update / create Stock entry
-                $warehouseId = ($rawType === 'RM') ? 1 : 3; // 1 = RM Store, 3 = FG Warehouse
-                $stkStmt = $db->prepare("SELECT id, quantity, reserved_quantity FROM stock WHERE material_type = ? AND material_id = ? AND warehouse_id = ?");
+                // Set the godown balance. available_quantity is NEVER written here directly:
+                // it is a GENERATED column on some schemas; syncAvailable() handles plain-column schemas.
+                $stkStmt = $db->prepare("SELECT id, quantity, reserved_quantity FROM stock WHERE material_type = ? AND material_id = ? AND warehouse_id = ? FOR UPDATE");
                 $stkStmt->execute([$rawType, $itemId, $warehouseId]);
                 $stkRow = $stkStmt->fetch();
+                $prevQty = $stkRow ? (float)$stkRow['quantity'] : 0.0;
 
                 if ($stkRow) {
-                    $reserved = (float)$stkRow['reserved_quantity'];
-                    $avail = max(0, $rawQty - $reserved);
-                    $updStk = $db->prepare("
-                        UPDATE stock 
-                        SET quantity = ?, available_quantity = ?, material_code = ?, material_name = ?, unit_id = ?, updated_at = NOW()
-                        WHERE id = ?
-                    ");
-                    $updStk->execute([$rawQty, $avail, $itemCode, $rawName, $unitId, $stkRow['id']]);
+                    $db->prepare("UPDATE stock SET quantity = ?, material_code = ?, material_name = ?, unit_id = ?, updated_at = NOW() WHERE id = ?")
+                       ->execute([$rawQty, $itemCode, $itemName, $unitId, $stkRow['id']]);
+                    $stockId = (int)$stkRow['id'];
                 } else {
-                    $insStk = $db->prepare("
-                        INSERT INTO stock (material_type, material_id, material_code, material_name, warehouse_id, quantity, reserved_quantity, available_quantity, unit_id, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, 0.000, ?, ?, NOW())
-                    ");
-                    $insStk->execute([$rawType, $itemId, $itemCode, $rawName, $warehouseId, $rawQty, $rawQty, $unitId]);
+                    $db->prepare("
+                        INSERT INTO stock (material_type, material_id, material_code, material_name, warehouse_id, quantity, reserved_quantity, unit_id, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, 0.000, ?, NOW())
+                    ")->execute([$rawType, $itemId, $itemCode, $itemName, $warehouseId, $rawQty, $unitId]);
+                    $stockId = (int)$db->lastInsertId();
+                }
+                InventoryService::syncAvailable($stockId);
+
+                // Ledger: record only the movement actually made
+                $diff = round($rawQty - $prevQty, 3);
+                if ($diff != 0.0) {
+                    $txType = !$stkRow ? 'OPENING' : ($diff > 0 ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT');
+                    $txId = 'BLK-' . strtoupper(bin2hex(random_bytes(4)));
+                    $db->prepare("
+                        INSERT INTO stock_ledger (
+                            transaction_type, transaction_id, material_type, material_id, material_code,
+                            warehouse_id, quantity_in, quantity_out, balance_after, unit_id, rate,
+                            reference_number, transaction_date, remarks, created_by, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'BULK_IMPORT', CURDATE(), ?, ?, NOW())
+                    ")->execute([
+                        $txType, $txId, $rawType, $itemId, $itemCode, $warehouseId,
+                        $diff > 0 ? $diff : 0, $diff < 0 ? -$diff : 0, $rawQty, $unitId, $rawRate,
+                        "Bulk stock update: {$prevQty} -> {$rawQty}", $user['id']
+                    ]);
                 }
 
-                // Add audit entry in stock ledger
-                $txId = 'BLK-' . strtoupper(bin2hex(random_bytes(4)));
-                $ledStmt = $db->prepare("
-                    INSERT INTO stock_ledger (
-                        transaction_type, transaction_id, material_type, material_id, material_code,
-                        warehouse_id, quantity_in, quantity_out, balance_after, unit_id, rate,
-                        reference_number, transaction_date, remarks, created_by, created_at
-                    ) VALUES ('OPENING', ?, ?, ?, ?, ?, ?, 0.000, ?, ?, ?, 'BULK_IMPORT', CURDATE(), 'Bulk initial stock setup', ?, NOW())
-                ");
-                $ledStmt->execute([$txId, $rawType, $itemId, $itemCode, $warehouseId, $rawQty, $rawQty, $unitId, $rawRate, $user['id']]);
-
                 $processed[] = [
-                    'id'            => $itemId,
-                    'material_code' => $itemCode,
-                    'material_name' => $rawName,
-                    'material_type' => $rawType,
-                    'quantity'      => $rawQty,
-                    'unit'          => $uCode,
-                    'status'        => $isNew ? 'CREATED' : 'UPDATED'
+                    'id'             => $itemId,
+                    'material_code'  => $itemCode,
+                    'material_name'  => $itemName,
+                    'material_type'  => $rawType,
+                    'warehouse_id'   => $warehouseId,
+                    'warehouse_name' => $whNames[$warehouseId] ?? InventoryService::warehouseLabel($warehouseId),
+                    'previous_qty'   => $prevQty,
+                    'quantity'       => $rawQty,
+                    'unit'           => $uCode,
+                    'status'         => $isNew ? 'CREATED' : 'UPDATED'
                 ];
+            }
+
+            if (!empty($rowErrors)) {
+                $db->rollBack();
+                Response::error('Bulk stock update not saved. Fix these rows and retry: ' . implode(' | ', array_slice($rowErrors, 0, 10)), ['errors' => $rowErrors], 400);
             }
 
             $db->commit();
@@ -519,7 +643,7 @@ class StockController {
                 'items'         => $processed
             ], "Bulk stock synchronization complete: {$createdCount} new items created, {$updatedCount} items updated.");
         } catch (Exception $e) {
-            $db->rollBack();
+            if ($db->inTransaction()) $db->rollBack();
             Response::error('Failed to process bulk stock import: ' . $e->getMessage(), null, 400);
         }
     }

@@ -18,6 +18,27 @@ export function FullKittingModal({
   const [remarks, setRemarks] = useState('');
   const [customItems, setCustomItems] = useState([]);
   const [subChildParts, setSubChildParts] = useState([]);
+  const [warehouses, setWarehouses] = useState([]);
+  const [sourceWarehouseId, setSourceWarehouseId] = useState(() => {
+    try { return localStorage.getItem('bharat_kitting_godown') || ''; } catch (e) { return ''; }
+  });
+
+  useEffect(() => {
+    if (!isOpen) return;
+    api.settings.getWarehouses()
+      .then((res) => {
+        const list = (Array.isArray(res?.data) ? res.data : []).filter((w) => w.active === undefined || Number(w.active) === 1);
+        setWarehouses(list);
+        setSourceWarehouseId((prev) => (list.some((w) => String(w.id) === String(prev)) ? prev : (list[0] ? String(list[0].id) : '1')));
+      })
+      .catch(() => setSourceWarehouseId((prev) => prev || '1'));
+  }, [isOpen]);
+
+  const changeSourceWarehouse = (val) => {
+    setSourceWarehouseId(val);
+    try { localStorage.setItem('bharat_kitting_godown', val); } catch (e) {}
+  };
+  const sourceWarehouse = warehouses.find((w) => String(w.id) === String(sourceWarehouseId));
 
   const batchNo = batch?.batch_no || batch?.release_number || '';
   const fgId = batch?.fg_id || 0;
@@ -38,6 +59,7 @@ export function FullKittingModal({
       setKittingData(null);
       return;
     }
+    if (!sourceWarehouseId) return;
 
     setLoading(true);
     api.production.getKittingPreview({
@@ -45,7 +67,7 @@ export function FullKittingModal({
       batch_no: batchNo,
       cat_no: catNo,
       quantity: qty,
-      warehouse_id: 1 // Main RM Store
+      warehouse_id: Number(sourceWarehouseId)
     })
       .then((res) => {
         if (res?.data) {
@@ -74,7 +96,7 @@ export function FullKittingModal({
       .finally(() => {
         setLoading(false);
       });
-  }, [isOpen, batchNo, fgId, catNo, qty]);
+  }, [isOpen, batchNo, fgId, catNo, qty, sourceWarehouseId]);
 
   const handleQtyChange = (index, newQty) => {
     const next = [...customItems];
@@ -110,7 +132,7 @@ export function FullKittingModal({
         batch_no: batchNo,
         fg_id: fgId,
         quantity: qty,
-        warehouse_id: 1, // Main RM Store
+        warehouse_id: Number(sourceWarehouseId) || 1,
         items: customItems,
         custom_items: customItems,
         remarks: remarks || `Upfront Full Kitting RM deduction for Batch #${batchNo}`,
@@ -186,9 +208,23 @@ export function FullKittingModal({
               )}
             </div>
             <h3 className="font-extrabold text-slate-900 text-sm mt-1">{itemName}</h3>
-            <p className="text-[11px] text-slate-500 font-medium">
-              Source: <span className="font-semibold text-slate-700">WH-MAIN Main Child Part & RM Store</span>
-            </p>
+            <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-500 font-medium">
+              <span>Issue child parts from godown:</span>
+              {warehouses.length > 0 ? (
+                <select
+                  value={sourceWarehouseId}
+                  onChange={(e) => changeSourceWarehouse(e.target.value)}
+                  disabled={kittingData?.already_deducted}
+                  className="text-[11px] font-bold bg-white border border-slate-300 rounded-md px-1.5 py-0.5 text-slate-800 cursor-pointer"
+                >
+                  {warehouses.map((w) => (
+                    <option key={w.id} value={w.id}>{w.warehouse_name}</option>
+                  ))}
+                </select>
+              ) : (
+                <span className="font-semibold text-slate-700">{sourceWarehouse?.warehouse_name || 'Main Store'}</span>
+              )}
+            </div>
           </div>
           <div className="text-right sm:border-l sm:border-slate-200 sm:pl-4">
             <span className="text-[10px] text-slate-500 font-bold uppercase block">Production Lot</span>

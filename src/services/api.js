@@ -113,8 +113,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-    bulkImport: (itemsOrFormData) => {
+    getTransfers: (limit = 50) => request(`/stock/transfers?limit=${limit}`),
+    bulkImport: (itemsOrFormData, warehouseId = null) => {
       if (itemsOrFormData instanceof FormData) {
+        if (warehouseId && !itemsOrFormData.has('warehouse_id')) itemsOrFormData.append('warehouse_id', warehouseId);
         return request('/stock/bulk-import', {
           method: 'POST',
           body: itemsOrFormData,
@@ -122,7 +124,7 @@ export const api = {
       }
       return request('/stock/bulk-import', {
         method: 'POST',
-        body: JSON.stringify({ items: itemsOrFormData }),
+        body: JSON.stringify({ items: itemsOrFormData, warehouse_id: warehouseId || undefined }),
       });
     },
     getImsMaster: (params = {}) => {
@@ -439,6 +441,30 @@ export const api = {
   },
 
   // Tally Item Mappings
+  rejections: {
+    getRoutes: () => request('/rejections/routes'),
+    saveRoute: (data) => request('/rejections/routes', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    getLots: (params = {}) => {
+      const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''));
+      return request(`/rejections/lots?${new URLSearchParams(clean).toString()}`);
+    },
+    createLots: (data) => request('/rejections/lots', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    advanceLot: (data) => request('/rejections/lots/advance', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    cancelLot: (data) => request('/rejections/lots/cancel', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  },
+
   mappings: {
     getAll: (params = {}) => {
       const q = new URLSearchParams(params).toString();

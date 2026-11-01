@@ -1,15 +1,42 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Icon from './Icon';
 import { api } from '../../services/api';
 import { downloadBulkStockTemplate } from '../../utils/csvTemplates';
 import { useToast } from '../../context/ToastContext';
 
-export function BulkStockUploadModal({ isOpen, onClose, onStockUpdated, rawMaterials = [], finishedGoods = [] }) {
+export function BulkStockUploadModal({ isOpen, onClose, onStockUpdated, rawMaterials = [], finishedGoods = [], warehouses = [] }) {
   const [activeTab, setActiveTab] = useState('upload'); // 'upload' or 'manual'
   const [file, setFile] = useState(null);
   const [parsedRows, setParsedRows] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [warehouseId, setWarehouseId] = useState('');
+  const [templateLoading, setTemplateLoading] = useState(false);
   const { success, error } = useToast();
+
+  useEffect(() => {
+    if (!warehouseId && warehouses.length > 0) setWarehouseId(String(warehouses[0].id));
+  }, [warehouses, warehouseId]);
+
+  const selectedWarehouse = warehouses.find((w) => String(w.id) === String(warehouseId));
+
+  // Template pre-filled with the balances of the SELECTED godown (not the total)
+  const handleDownloadTemplate = async () => {
+    if (!selectedWarehouse) {
+      downloadBulkStockTemplate(rawMaterials, finishedGoods);
+      return;
+    }
+    setTemplateLoading(true);
+    try {
+      const res = await api.stock.getAll({ warehouse_id: selectedWarehouse.id });
+      const qtyMap = {};
+      (res?.data || []).forEach((s) => { qtyMap[`${s.material_type}_${s.material_id}`] = Number(s.quantity) || 0; });
+      downloadBulkStockTemplate(rawMaterials, finishedGoods, { godownCode: selectedWarehouse.warehouse_code, qtyMap });
+    } catch (err) {
+      error('Could not load godown stock for the template: ' + (err.message || err));
+    } finally {
+      setTemplateLoading(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -67,6 +94,7 @@ export function BulkStockUploadModal({ isOpen, onClose, onStockUpdated, rawMater
         let rateIdx = -1;
         let minIdx = -1;
         let maxIdx = -1;
+        let whIdx = -1;
 
         headers.forEach((h, idx) => {
           if (['id', 'item_id', 'item id'].includes(h)) idIdx = idx;
@@ -78,6 +106,7 @@ export function BulkStockUploadModal({ isOpen, onClose, onStockUpdated, rawMater
           else if (['rate', 'price', 'standard_rate', 'selling_price', 'unit price'].includes(h)) rateIdx = idx;
           else if (['min level', 'min level (reorder)', 'min_level', 'minimum_stock', 'reorder_level', 'reorder level', 'min stock'].includes(h)) minIdx = idx;
           else if (['max level', 'max level (max stock)', 'max_level', 'maximum_stock', 'max stock', 'max stock quantity'].includes(h)) maxIdx = idx;
+          else if (['godown', 'warehouse', 'warehouse_code', 'warehouse code', 'warehouse name', 'warehouse_name'].includes(h)) whIdx = idx;
         });
 
         const rows = [];
@@ -95,12 +124,14 @@ export function BulkStockUploadModal({ isOpen, onClose, onStockUpdated, rawMater
           const rateVal = rateIdx !== -1 ? parseFloat(cleanCols[rateIdx]?.replace(/,/g, '') || '0') : 0;
           const minVal = minIdx !== -1 ? parseFloat(cleanCols[minIdx]?.replace(/,/g, '') || '0') : 0;
           const maxVal = maxIdx !== -1 ? parseFloat(cleanCols[maxIdx]?.replace(/,/g, '') || '0') : 0;
+          const whVal = whIdx !== -1 ? cleanCols[whIdx] || '' : '';
 
           if (!nameVal && !codeVal) continue;
 
           rows.push({
             id: idVal,
-            material_type: typeVal.toUpperCase().includes('RM') || typeVal.toUpperCase().includes('RAW') ? 'RM' : 'FG',
+            material_type: /\bRM\b|RAW|CHILD/i.test(typeVal) ? 'RM' : 'FG',
+            warehouse: whVal,
             material_code: codeVal,
             material_name: nameVal,
             quantity: isNaN(qtyVal) ? 0 : qtyVal,
@@ -158,7 +189,12 @@ export function BulkStockUploadModal({ isOpen, onClose, onStockUpdated, rawMater
 
     setLoading(true);
     try {
-      const res = await api.stock.bulkImport(parsedRows);
+      if (warehouses.length > 0 && !warehouseId && parsedRows.some((r) => !r.warehouse)) {
+        error('Select the godown this stock belongs to.');
+        setLoading(false);
+        return;
+      }
+      const res = await api.stock.bulkImport(parsedRows, warehouseId ? Number(warehouseId) : null);
       if (res?.data) {
         success(res.message || `Successfully synced ${res.data.total} stock items!`);
         if (onStockUpdated) onStockUpdated(res.data);
@@ -205,6 +241,27 @@ export function BulkStockUploadModal({ isOpen, onClose, onStockUpdated, rawMater
           </button>
         </div>
 
+        {/* Godown selection: quantities are the balance in THIS godown */}
+        {warehouses.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3">
+            <Icon name="warehouse" size="sm" className="text-amber-700" ariaHidden={true} />
+            <label className="text-xs font-bold text-amber-950" htmlFor="bulk-godown">Godown / Warehouse</label>
+            <select
+              id="bulk-godown"
+              value={warehouseId}
+              onChange={(e) => setWarehouseId(e.target.value)}
+              className="text-xs font-semibold bg-white border border-amber-300 rounded-lg px-2.5 py-1.5 text-slate-900 cursor-pointer"
+            >
+              {warehouses.map((w) => (
+                <option key={w.id} value={w.id}>{w.warehouse_name} ({w.warehouse_code})</option>
+              ))}
+            </select>
+            <span className="text-[11px] text-amber-900">
+              Quantities are set as the stock balance in this godown. A <strong>Godown</strong> column in the CSV overrides it per row.
+            </span>
+          </div>
+        )}
+
         {/* Step 1: Download Pre-filled Template & Upload Action Bar */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
           <div>
@@ -216,11 +273,12 @@ export function BulkStockUploadModal({ isOpen, onClose, onStockUpdated, rawMater
             </p>
             <button
               type="button"
-              onClick={() => downloadBulkStockTemplate(rawMaterials, finishedGoods)}
+              onClick={handleDownloadTemplate}
+              disabled={templateLoading}
               className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 text-blue-700 border border-blue-200 text-xs font-bold shadow-xs transition-colors flex items-center gap-2 cursor-pointer"
             >
               <Icon name="download" size="xs" ariaHidden={true} />
-              <span>Download Pre-Filled Stock CSV Format</span>
+              <span>{templateLoading ? 'Preparing...' : `Download Pre-Filled Stock CSV${selectedWarehouse ? ` (${selectedWarehouse.warehouse_code})` : ''}`}</span>
             </button>
           </div>
 

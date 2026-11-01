@@ -621,11 +621,11 @@ export function SKUTrackingSheet() {
   };
 
   // Handle stage handoff confirmation
-  const handleConfirmHandoff = async ({ rowId, stageKey, nextStageKey, goodQty, rejQty, rejReason, disposition, reworkStage, operatorName, remarks, scrapWeightKg, warehouseId }) => {
+  const handleConfirmHandoff = async ({ rowId, stageKey, stageName, nextStageKey, goodQty, rejQty, minorQty = 0, furnaceQty = 0, rejectionSplits = [], rejReason, disposition, reworkStage, operatorName, remarks, scrapWeightKg, warehouseId }) => {
     const targetRow = data.find((item) => item.id === rowId) || handoffRow;
 
     // If handing off to Ready FG Stock, trigger the backend API to deposit to central Finished Goods Stock
-    if (nextStageKey === 'ready' && targetRow) {
+    if (nextStageKey === 'ready' && targetRow && Number(goodQty) > 0) {
       try {
         const res = await api.production.completeBatchToFG({
           batch_no: targetRow.batch_no,
@@ -648,34 +648,33 @@ export function SKUTrackingSheet() {
         console.error('Failed to update Finished Goods inventory in DB:', apiErr);
         warning(`Batch moved to Ready FG locally, but inventory update failed: ${apiErr.message}`);
       }
-    } else {
-      const dispText = disposition === 'REWORK' ? `Stage Rework (${reworkStage})` : `Foundry Recast (${scrapWeightKg} kg Scrap)`;
-      success(`Forwarded ${goodQty} PCS to next stage! (${rejQty} PCS logged as ${dispText})`);
+    } else if (Number(goodQty) > 0) {
+      success(`Forwarded ${goodQty} PCS to next stage!`);
     }
 
-    // If logged as rework with qty > 0, record in the central Rework Management Hub queue
-    if (disposition === 'REWORK' && Number(rejQty) > 0) {
+    // Rejected pieces: create tracked rejection lots (minor rework / furnace) in the database
+    if (Number(rejQty) > 0 && rejectionSplits.length > 0 && targetRow) {
+      const stageObj = stages.find((s) => s.key === stageKey);
       try {
-        const stored = localStorage.getItem('bharat_rework_queue');
-        const list = stored ? JSON.parse(stored) : [];
-        const stageObj = stages.find((s) => s.key === stageKey);
-        const reworkObj = stages.find((s) => s.key === reworkStage);
-        const newRework = {
-          id: Date.now(),
-          batch_no: String(targetRow?.batch_no || '').replace(/^#/, ''),
-          item_name: targetRow?.item_name || 'SKU Item',
-          detected_stage: stageObj?.full_name || stageKey,
-          defect_reason: rejReason || 'Stage Defect',
-          rework_stage: reworkObj?.full_name || reworkStage || stageObj?.full_name || stageKey,
-          qty: Number(rejQty),
-          avg_weight: Number(targetRow?.avg_weight || 0.35),
-          date_logged: new Date().toLocaleDateString('en-GB'),
-          status: 'IN_REWORK',
-          operator: operatorName || 'Supervisor'
-        };
-        localStorage.setItem('bharat_rework_queue', JSON.stringify([newRework, ...list]));
+        await api.rejections.createLots({
+          batch_no: String(targetRow.batch_no || '').replace(/^#/, ''),
+          release_id: targetRow.release_id || null,
+          fg_id: targetRow.fg_id || null,
+          item_name: targetRow.item_name,
+          source_stage_key: stageKey,
+          source_stage_name: stageObj?.full_name || stageName || stageKey,
+          defect_reason: rejReason,
+          avg_weight: Number(targetRow.avg_weight || 0.35),
+          operator: operatorName,
+          remarks,
+          splits: rejectionSplits,
+        });
+        const parts = [];
+        if (minorQty > 0) parts.push(`${minorQty} minor rework`);
+        if (furnaceQty > 0) parts.push(`${furnaceQty} to furnace (~${scrapWeightKg} kg)`);
+        success(`Rejection ${rejQty} PCS logged: ${parts.join(' + ')}. Track it under Rejection & Scrap Stock.`);
       } catch (err) {
-        console.warn('Could not save rework record to localStorage:', err);
+        warning(`Rejection counted on the sheet, but the rejection lot could not be created: ${err.message}`);
       }
     }
 
@@ -697,6 +696,8 @@ export function SKUTrackingSheet() {
           const currentBal = Number(updated.stages[stageKey].bal !== undefined ? updated.stages[stageKey].bal : (updated.stages[stageKey].prod_qty || goodQty));
           updated.stages[stageKey].bal = Math.max(0, currentBal - goodQty - rejQty);
           updated.stages[stageKey].rejection = (Number(updated.stages[stageKey].rejection || 0)) + rejQty;
+          updated.stages[stageKey].rejection_minor = (Number(updated.stages[stageKey].rejection_minor || 0)) + Number(minorQty || 0);
+          updated.stages[stageKey].rejection_furnace = (Number(updated.stages[stageKey].rejection_furnace || 0)) + Number(furnaceQty || 0);
           updated.stages[stageKey].out_date = todayStr;
           updated.stages[stageKey].out_time = timeStr;
           updated.stages[stageKey].rejection_reason = rejReason;
@@ -709,7 +710,9 @@ export function SKUTrackingSheet() {
         }
 
         // Forward to next stage
-        if (nextStageKey === 'ready') {
+        if (nextStageKey === 'ready' && goodQty <= 0) {
+          // only rejections were recorded; nothing moves to Ready FG
+        } else if (nextStageKey === 'ready') {
           if (!updated.ready) updated.ready = {};
           updated.ready.stock_qty = (Number(updated.ready.stock_qty || 0)) + goodQty;
           updated.ready.date_form = todayStr;
@@ -1325,6 +1328,13 @@ export function SKUTrackingSheet() {
                               title={`Click to send ${stg.full_name} to next stage`}
                             >
                               {rejQty}
+                              {(Number(stgData.rejection_minor || 0) > 0 || Number(stgData.rejection_furnace || 0) > 0) && (
+                                <div className="text-[9px] font-semibold leading-tight whitespace-nowrap" title="Minor rework / Furnace">
+                                  <span className="text-blue-700">M{Number(stgData.rejection_minor || 0)}</span>
+                                  <span className="text-slate-400"> · </span>
+                                  <span className="text-rose-700">F{Number(stgData.rejection_furnace || 0)}</span>
+                                </div>
+                              )}
                             </td>
                             <td
                               onClick={() => handleOpenHandoff(row, stg.key)}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   ArrowLeftRight,
   Plus, 
@@ -46,6 +46,8 @@ export function InOut() {
   const [subSkus, setSubSkus] = useState([]);
   const [allItems, setAllItems] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
+  const [defaultWarehouseId, setDefaultWarehouseIdState] = useState('');
+  const defaultWhRef = useRef('');
   const [subChildParts, setSubChildParts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -97,6 +99,26 @@ export function InOut() {
 
   const { success, error, warning } = useToast();
 
+  // Default godown for new rows (remembered on this browser)
+  const setDefaultWarehouseId = (id) => {
+    const v = id ? String(id) : '';
+    defaultWhRef.current = v;
+    setDefaultWarehouseIdState(v);
+    try { localStorage.setItem('bharat_inout_default_godown', v); } catch (e) {}
+  };
+
+  // Live stock of an item inside one godown
+  const getGodownQty = (item, warehouseId) => {
+    if (!item || !warehouseId) return null;
+    const g = (item.godown_stocks || []).find((s) => String(s.warehouse_id) === String(warehouseId));
+    return g ? (parseFloat(g.quantity) || 0) : 0;
+  };
+
+  const warehouseName = (id) => {
+    const w = warehouses.find((x) => String(x.id) === String(id));
+    return w ? w.warehouse_name : '';
+  };
+
   // Load all items & parties
   const loadMasterData = async () => {
     setLoading(true);
@@ -121,6 +143,12 @@ export function InOut() {
       setParties(pList);
       setWarehouses(whList);
       setSubChildParts(scpList);
+
+      let savedWh = '';
+      try { savedWh = localStorage.getItem('bharat_inout_default_godown') || ''; } catch (e) {}
+      const validSaved = whList.some((w) => String(w.id) === String(savedWh));
+      const chosenWh = validSaved ? savedWh : (defaultWhRef.current && whList.some((w) => String(w.id) === String(defaultWhRef.current)) ? defaultWhRef.current : (whList[0]?.id ? String(whList[0].id) : ''));
+      setDefaultWarehouseId(chosenWh);
 
       // Initialize with default 5 blank/sample rows if sheet is empty
       if (rows.length === 0) {
@@ -170,7 +198,8 @@ export function InOut() {
       rate: item ? (parseFloat(item.default_rate) || 0) : 0,
       date: today,
       invoice_number: '',
-      remarks: ''
+      remarks: '',
+      warehouse_id: defaultWhRef.current || ''
     };
   };
 
@@ -400,6 +429,10 @@ export function InOut() {
         error(`Row #${i + 1}: Quantity must be greater than zero.`);
         return;
       }
+      if (warehouses.length > 0 && !r.warehouse_id) {
+        error(`Row #${i + 1}: Please select the Godown (where stock goes IN / comes OUT from).`);
+        return;
+      }
 
       validRows.push({
         type: r.type,
@@ -410,6 +443,9 @@ export function InOut() {
         sub_part_name: r.sub_part_name || '',
         sub_part_brand: r.sub_part_brand || '',
         sub_part_code: r.sub_part_code || '',
+        sub_sku_id: r.sub_sku_id || null,
+        clean_name: r.clean_name || '',
+        warehouse_id: r.warehouse_id ? parseInt(r.warehouse_id, 10) : null,
         quantity: parseFloat(r.quantity),
         rate: parseFloat(r.rate || 0),
         date: r.date || new Date().toISOString().split('T')[0],
@@ -658,6 +694,37 @@ export function InOut() {
                 />
               </div>
 
+              {/* Default Godown for new rows */}
+              {warehouses.length > 0 && (
+                <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-300 rounded-lg pl-2 pr-1 py-0.5">
+                  <Building2 className="w-3.5 h-3.5 text-amber-700" />
+                  <span className="text-[11px] font-bold text-amber-900 whitespace-nowrap">Default Godown</span>
+                  <select
+                    value={defaultWarehouseId}
+                    onChange={(e) => setDefaultWarehouseId(e.target.value)}
+                    className="text-xs font-semibold bg-white border border-amber-200 rounded-md px-1.5 py-1 text-slate-900 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                    title="New rows will use this godown"
+                  >
+                    {warehouses.map((w) => (
+                      <option key={w.id} value={w.id}>{w.warehouse_name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!defaultWarehouseId) return;
+                      setRows((prev) => prev.map((r) => ({ ...r, warehouse_id: defaultWarehouseId })));
+                      setIsDirty(true);
+                      success(`All rows set to ${warehouseName(defaultWarehouseId)}.`);
+                    }}
+                    className="text-[10px] font-bold text-amber-800 hover:text-amber-950 hover:bg-amber-100 px-1.5 py-1 rounded cursor-pointer whitespace-nowrap"
+                    title="Apply this godown to every row in the sheet"
+                  >
+                    Apply to all
+                  </button>
+                </div>
+              )}
+
               {/* Add New Party Quick Button */}
               <button
                 type="button"
@@ -777,6 +844,14 @@ export function InOut() {
                       </div>
                     </th>
 
+                    {/* Godown / Warehouse */}
+                    <th className="p-2.5 bg-[#fef3c7] text-[#78350f] min-w-[170px]">
+                      <div className="flex items-center gap-1">
+                        <Building2 className="w-3.5 h-3.5" />
+                        <span>Godown (In to / Out from)</span>
+                      </div>
+                    </th>
+
                     {/* Col F: Live Stock */}
                     <th className="p-2.5 bg-[#f8fafc] text-[#334155] min-w-[110px] text-right">
                       <div className="flex items-center justify-between">
@@ -841,7 +916,7 @@ export function InOut() {
                 <tbody className="divide-y divide-slate-200">
                   {displayedRows.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="p-12 text-center text-slate-400">
+                      <td colSpan={15} className="p-12 text-center text-slate-400">
                         <ArrowLeftRight className="w-8 h-8 mx-auto text-slate-300 mb-2" />
                         <p className="font-bold text-slate-700 text-xs">No entries match your search</p>
                         <p className="text-[11px] text-slate-400 mt-1">
@@ -856,7 +931,9 @@ export function InOut() {
                       const candidateItems = row.material_type === 'RM' ? rawMaterials : finishedGoods;
                       const itemObj = candidateItems.find(it => String(it.id) === String(row.item_id));
                       const amount = (parseFloat(row.quantity || 0) * parseFloat(row.rate || 0)).toFixed(2);
-                      const isLowStock = isOut && row.current_stock < parseFloat(row.quantity || 0);
+                      const godownQty = row.sub_child_part_id ? null : getGodownQty(itemObj, row.warehouse_id);
+                      const shownStock = godownQty !== null ? godownQty : (parseFloat(row.current_stock) || 0);
+                      const isLowStock = isOut && shownStock < parseFloat(row.quantity || 0);
 
                       return (
                         <tr
@@ -1068,6 +1145,35 @@ export function InOut() {
                             </div>
                           </td>
 
+                          {/* Godown / Warehouse selector */}
+                          <td className="p-1.5">
+                            <div className="relative">
+                              <select
+                                value={row.warehouse_id || ''}
+                                onChange={(e) => handleCellChange(originalIdx, 'warehouse_id', e.target.value)}
+                                className={`w-full appearance-none text-xs font-bold rounded-xl pl-2.5 pr-7 py-2 bg-white border cursor-pointer focus:outline-none focus:ring-2 shadow-2xs transition-all ${
+                                  !row.warehouse_id
+                                    ? 'border-amber-400 text-amber-700 focus:ring-amber-500/20'
+                                    : isOut
+                                    ? 'border-rose-200 hover:border-rose-300 text-slate-800 focus:ring-rose-500/20'
+                                    : 'border-emerald-200 hover:border-emerald-300 text-slate-800 focus:ring-emerald-500/20'
+                                }`}
+                                title={isOut ? 'Stock will be issued from this godown' : 'Stock will be stored in this godown'}
+                              >
+                                <option value="">-- Select Godown --</option>
+                                {warehouses.map((w) => (
+                                  <option key={w.id} value={w.id}>{w.warehouse_name}</option>
+                                ))}
+                              </select>
+                              <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              </div>
+                            </div>
+                            <div className={`text-[9px] font-bold mt-0.5 pl-1 ${isOut ? 'text-rose-600' : 'text-emerald-700'}`}>
+                              {isOut ? '↑ Issue from godown' : '↓ Store into godown'}
+                            </div>
+                          </td>
+
                           {/* Col F: Live Stock (with live hover breakdown) */}
                           <td 
                             className="p-2 text-right cursor-help transition-all hover:bg-slate-100/60"
@@ -1090,10 +1196,15 @@ export function InOut() {
                                   ? 'text-rose-900 bg-rose-100/50'
                                   : 'text-emerald-900 bg-emerald-100/50'
                               }`}>
-                                {row.current_stock.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                                {shownStock.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                               </span>
                               <span className="text-[10px] text-slate-400 font-semibold">{row.unit_code}</span>
                             </div>
+                            {godownQty !== null && (
+                              <div className="text-[9px] text-slate-400 font-semibold mt-0.5" title="Stock in the selected godown / total across all godowns">
+                                in godown • total {(parseFloat(row.current_stock) || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                              </div>
+                            )}
                             {isLowStock && (
                               <div className="text-[9px] text-rose-600 font-bold flex items-center justify-end gap-0.5 mt-0.5">
                                 <AlertTriangle className="w-2.5 h-2.5" /> Low Stock
@@ -1326,6 +1437,7 @@ export function InOut() {
                     <th className="p-3">Party Name</th>
                     <th className="p-3">Item Details</th>
                     <th className="p-3">Invoice #</th>
+                    <th className="p-3">Godown</th>
                     <th className="p-3 text-right">Quantity</th>
                     <th className="p-3 text-right">Rate</th>
                     <th className="p-3 text-right">Amount</th>
@@ -1335,14 +1447,14 @@ export function InOut() {
                 <tbody className="divide-y divide-slate-100">
                   {historyLoading ? (
                     <tr>
-                      <td colSpan={9} className="p-10 text-center text-slate-400">
+                      <td colSpan={10} className="p-10 text-center text-slate-400">
                         <RefreshCw className="w-6 h-6 animate-spin mx-auto text-blue-600 mb-2" />
                         <p className="font-semibold text-xs">Loading In / Out transactions...</p>
                       </td>
                     </tr>
                   ) : historyRecords.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="p-10 text-center text-slate-400">
+                      <td colSpan={10} className="p-10 text-center text-slate-400">
                         <FileText className="w-6 h-6 mx-auto text-slate-300 mb-2" />
                         <p className="font-bold text-xs text-slate-600">No transactions recorded yet</p>
                         <p className="text-[11px] text-slate-400">
@@ -1382,6 +1494,12 @@ export function InOut() {
                           </td>
                           <td className="p-3 font-mono text-slate-600">
                             {item.invoice_number || '-'}
+                          </td>
+                          <td className="p-3">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-900 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded whitespace-nowrap">
+                              <Building2 className="w-3 h-3" />
+                              {item.warehouse_name || warehouseName(item.warehouse_id) || '-'}
+                            </span>
                           </td>
                           <td className="p-3 text-right font-mono font-bold text-slate-900">
                             {parseFloat(item.quantity).toLocaleString('en-IN', { maximumFractionDigits: 3 })} {item.unit_code}
