@@ -457,6 +457,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+    decideLot: (data) => request('/rejections/lots/decide', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
     cancelLot: (data) => request('/rejections/lots/cancel', {
       method: 'POST',
       body: JSON.stringify(data),

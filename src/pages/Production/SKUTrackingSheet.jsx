@@ -682,10 +682,7 @@ export function SKUTrackingSheet() {
           remarks,
           splits: rejectionSplits,
         });
-        const parts = [];
-        if (minorQty > 0) parts.push(`${minorQty} minor rework`);
-        if (furnaceQty > 0) parts.push(`${furnaceQty} to furnace (~${scrapWeightKg} kg)`);
-        success(`Rejection ${rejQty} PCS logged: ${parts.join(' + ')}. Track it under Rejection & Scrap Stock.`);
+        success(`${rejQty} PCS sent to the Rejection Pipeline. Decide furnace or rework under Rejections.`);
       } catch (err) {
         warning(`Rejection counted on the sheet, but the rejection lot could not be created: ${err.message}`);
       }

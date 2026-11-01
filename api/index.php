@@ -394,6 +394,9 @@ try {
         case 'rejections/lots/advance':
             if ($method === 'POST') RejectionController::advanceLot();
             break;
+        case 'rejections/lots/decide':
+            if ($method === 'POST') RejectionController::decideLot();
+            break;
         case 'rejections/lots/cancel':
             if ($method === 'POST') RejectionController::cancelLot();
             break;

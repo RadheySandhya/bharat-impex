@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Plus, Trash2, Save, RefreshCw, Sparkles, Flame, Wrench, ArrowRight } from 'lucide-react';
+import { Plus, Trash2, Save, RefreshCw, Sparkles, Flame, Wrench, ArrowRight, GitBranch } from 'lucide-react';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
@@ -8,9 +8,19 @@ const CARD_W = 220;
 const CARD_H = 96;
 
 const ROUTE_META = {
+  COMMON: {
+    label: 'Rejection Pipeline (before decision)',
+    short: 'Pipeline',
+    icon: GitBranch,
+    accent: 'amber',
+    border: 'border-amber-500',
+    chip: 'bg-amber-100 text-amber-900',
+    stroke: '#FF9500',
+    hint: 'Every rejection goes through these steps first. The last step decides Furnace or Rework.',
+  },
   MINOR: {
-    label: 'Minor Defect (Rework) Route',
-    short: 'Minor Rework',
+    label: 'Rework Route (after decision)',
+    short: 'Rework',
     icon: Wrench,
     accent: 'blue',
     border: 'border-blue-500',
@@ -19,7 +29,7 @@ const ROUTE_META = {
     hint: 'Pieces that can be repaired and returned to production.',
   },
   FURNACE: {
-    label: 'Furnace (Melt & Recast) Route',
+    label: 'Furnace Route (after decision)',
     short: 'Furnace',
     icon: Flame,
     accent: 'rose',
@@ -60,7 +70,7 @@ function orderSteps(nodes, edges) {
 }
 
 export function RejectionProcessFlow() {
-  const [routeType, setRouteType] = useState('MINOR');
+  const [routeType, setRouteType] = useState('COMMON');
   const [routes, setRoutes] = useState({});
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
@@ -289,7 +299,7 @@ export function RejectionProcessFlow() {
         </div>
         <div className="flex items-center gap-1 flex-wrap text-[11px]">
           <span className="font-bold text-slate-500 mr-1">Lot path:</span>
-          <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 font-bold">Rejected at stage</span>
+          <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 font-bold">{routeType === 'COMMON' ? 'Rejected at stage' : 'Decided in pipeline'}</span>
           {ordered.map((n, i) => (
             <React.Fragment key={n.id}>
               <ArrowRight className="w-3 h-3 text-slate-400" />
@@ -298,7 +308,7 @@ export function RejectionProcessFlow() {
           ))}
           <ArrowRight className="w-3 h-3 text-slate-400" />
           <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold">
-            {routeType === 'FURNACE' ? 'Scrap stock booked' : 'Returned to production'}
+            {routeType === 'COMMON' ? 'Decide: Furnace or Rework' : routeType === 'FURNACE' ? 'Scrap stock booked' : 'Returned to production'}
           </span>
         </div>
       </div>
@@ -409,7 +419,7 @@ export function RejectionProcessFlow() {
                     aria-label="Step note"
                   />
                   <div className="text-[9px] font-bold text-slate-400 flex justify-between mt-auto">
-                    <span>{stepNo === ordered.length ? (routeType === 'FURNACE' ? 'Final: books scrap' : 'Final: returns pcs') : 'Hold to drag'}</span>
+                    <span>{stepNo === ordered.length ? (routeType === 'COMMON' ? 'Final: decision' : routeType === 'FURNACE' ? 'Final: books scrap' : 'Final: returns pcs') : 'Hold to drag'}</span>
                     <span style={{ color: meta.stroke }}>● ➔ connect</span>
                   </div>
                 </div>

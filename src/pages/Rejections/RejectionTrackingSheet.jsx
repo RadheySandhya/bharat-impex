@@ -25,6 +25,8 @@ const fmtShort = (s) => {
 export function RejectionTrackingSheet({ lots, route, disposition, canProcess, canCancel, onAdvance, onCancel }) {
   const steps = route?.steps || [];
   const isFurnace = disposition === 'FURNACE';
+  const isPipeline = disposition === 'PENDING';
+  const decisionOf = (lot) => [...(lot.history || [])].reverse().find((h) => h.action === 'DECIDED') || null;
 
   const rows = useMemo(() => {
     const open = lots.filter((l) => l.status === 'OPEN');
@@ -63,9 +65,11 @@ export function RejectionTrackingSheet({ lots, route, disposition, canProcess, c
                   <button
                     type="button"
                     onClick={() => onAdvance(lot)}
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-white active:scale-95 transition-transform ${lot.is_last_step ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-white active:scale-95 transition-transform ${lot.is_last_step ? (isPipeline ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-600 hover:bg-emerald-700') : 'bg-blue-600 hover:bg-blue-700'}`}
                   >
-                    {lot.is_last_step ? <>Complete <Check className="w-3 h-3" /></> : <>Send Next <ArrowRight className="w-3 h-3" /></>}
+                    {lot.is_last_step
+                      ? (isPipeline ? <>Decide <ArrowRight className="w-3 h-3" /></> : <>Complete <Check className="w-3 h-3" /></>)
+                      : <>Send Next <ArrowRight className="w-3 h-3" /></>}
                   </button>
                 )}
                 {canCancel && (
@@ -78,7 +82,7 @@ export function RejectionTrackingSheet({ lots, route, disposition, canProcess, c
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-500 border border-slate-200">Cancelled</span>
             ) : (
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                <CheckCircle2 className="w-2.5 h-2.5" /> {isFurnace ? 'Scrap Booked' : 'Returned'}
+                <CheckCircle2 className="w-2.5 h-2.5" /> {isPipeline ? 'Decided' : isFurnace ? 'Scrap Booked' : 'Returned'}
               </span>
             )}
           </div>
@@ -113,7 +117,15 @@ export function RejectionTrackingSheet({ lots, route, disposition, canProcess, c
         })}
 
         {/* Result */}
-        {isFurnace ? (
+        {isPipeline ? (() => {
+          const d = decisionOf(lot);
+          return (
+            <>
+              <td className={`p-2 text-right tabular-nums font-bold ${d ? 'bg-blue-50 text-blue-800' : 'text-slate-300'}`}>{d ? d.minor_qty : 0}</td>
+              <td className={`p-2 text-right tabular-nums font-bold ${d ? 'bg-rose-50 text-rose-800' : 'text-slate-300'}`}>{d ? d.furnace_qty : 0}</td>
+            </>
+          );
+        })() : isFurnace ? (
           <>
             <td className={`p-2 text-right tabular-nums font-bold ${done ? 'bg-emerald-50 text-emerald-800' : 'text-slate-300'}`}>{done ? Number(lot.scrap_weight_kg).toFixed(2) : 0}</td>
             <td className="p-2 text-[11px] text-slate-600 whitespace-nowrap">{done ? (lot.warehouse_name || '—') : ''}</td>
@@ -143,7 +155,7 @@ export function RejectionTrackingSheet({ lots, route, disposition, canProcess, c
                   Step {i + 1}: {s.name}
                 </th>
               ))}
-              <th colSpan={2} className="p-2.5 bg-emerald-100 text-emerald-900 text-center">{isFurnace ? 'Furnace Result' : 'Rework Result'}</th>
+              <th colSpan={2} className="p-2.5 bg-emerald-100 text-emerald-900 text-center">{isPipeline ? 'Decision' : isFurnace ? 'Furnace Result' : 'Rework Result'}</th>
             </tr>
             <tr className="text-[10px] font-bold uppercase text-slate-600 divide-x divide-slate-200 border-b border-slate-300">
               <th className="p-2 bg-slate-100 text-left">Date</th>
@@ -160,7 +172,12 @@ export function RejectionTrackingSheet({ lots, route, disposition, canProcess, c
                   <th className={`p-2 text-left border-r-2 border-slate-300 ${PALETTE[i % PALETTE.length].sub}`}>Date</th>
                 </React.Fragment>
               ))}
-              {isFurnace ? (
+              {isPipeline ? (
+                <>
+                  <th className="p-2 bg-emerald-50 text-blue-900 text-right">To Rework</th>
+                  <th className="p-2 bg-emerald-50 text-rose-900 text-right">To Furnace</th>
+                </>
+              ) : isFurnace ? (
                 <>
                   <th className="p-2 bg-emerald-50 text-emerald-900 text-right">Scrap KG</th>
                   <th className="p-2 bg-emerald-50 text-emerald-900 text-left">Godown</th>
@@ -177,7 +194,9 @@ export function RejectionTrackingSheet({ lots, route, disposition, canProcess, c
             {rows.open.length === 0 && rows.closed.length === 0 && (
               <tr>
                 <td colSpan={totalCols} className="p-10 text-center text-slate-400">
-                  No {isFurnace ? 'furnace' : 'minor rework'} lots. Rejections entered at a SKU Tracking stage handoff appear here.
+                  {isPipeline
+                    ? 'No rejections in the pipeline. Rejected pieces entered at a SKU Tracking handoff arrive here first.'
+                    : `No ${isFurnace ? 'furnace' : 'rework'} lots yet. They appear after a decision in the Pipeline.`}
                 </td>
               </tr>
             )}
@@ -187,7 +206,7 @@ export function RejectionTrackingSheet({ lots, route, disposition, canProcess, c
                 <td colSpan={totalCols} className="px-3 py-2.5 bg-slate-100 border-y border-slate-300">
                   <div className="flex items-center gap-2 font-extrabold text-slate-800 text-[11px] uppercase tracking-wide">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>Completed Rejection Lots ({isFurnace ? 'Booked to Scrap Stock' : 'Returned to Production'})</span>
+                    <span>{isPipeline ? 'Decided Lots (moved to Rework / Furnace)' : `Completed Rejection Lots (${isFurnace ? 'Booked to Scrap Stock' : 'Returned to Production'})`}</span>
                     <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 normal-case">{rows.closed.length} closed</span>
                   </div>
                 </td>

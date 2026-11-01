@@ -25,8 +25,29 @@ import { canOpenTab, canSettingsSub, firstAllowedTab, firstAllowedSettingsSub } 
 
 function AppContent() {
   const { isAuthenticated, loading, hasPermission, user } = useAuth();
-  const [activeTab, setActiveTab] = useState('sku_tracker');
-  const [settingsSubTab, setSettingsSubTab] = useState('raw_materials');
+  // The open screen lives in the address (#/rejections, #/settings/users) so refresh,
+  // Back/Forward and bookmarks keep you where you were
+  const readHash = () => {
+    const [tab, sub] = window.location.hash.replace(/^#\/?/, '').split('/');
+    return { tab: tab || null, sub: sub || null };
+  };
+  const [activeTab, setActiveTab] = useState(() => readHash().tab || 'sku_tracker');
+  const [settingsSubTab, setSettingsSubTab] = useState(() => readHash().sub || 'raw_materials');
+
+  React.useEffect(() => {
+    const target = activeTab === 'settings' ? `#/settings/${settingsSubTab}` : `#/${activeTab}`;
+    if (window.location.hash !== target) window.history.pushState(null, '', target);
+  }, [activeTab, settingsSubTab]);
+
+  React.useEffect(() => {
+    const onNav = () => {
+      const { tab, sub } = readHash();
+      if (tab) setActiveTab(tab);
+      if (sub) setSettingsSubTab(sub);
+    };
+    window.addEventListener('popstate', onNav);
+    return () => window.removeEventListener('popstate', onNav);
+  }, []);
 
   // Keep the user on screens their role allows
   React.useEffect(() => {

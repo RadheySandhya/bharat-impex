@@ -13,12 +13,28 @@
 
 class RejectionController {
 
-    public const DISPOSITIONS = ['MINOR', 'FURNACE'];
+    // Lot dispositions: PENDING = in the common rejection pipeline, decision not made yet
+    public const DISPOSITIONS = ['PENDING', 'MINOR', 'FURNACE'];
+    // Routes: COMMON = pipeline every rejection goes through first, ending in the decision
+    public const ROUTE_TYPES = ['COMMON', 'MINOR', 'FURNACE'];
+
+    private static function routeFor(string $disposition): string {
+        return $disposition === 'PENDING' ? 'COMMON' : $disposition;
+    }
+
+    private static function defaultRouteName(string $type): string {
+        return ['COMMON' => 'Rejection Pipeline', 'FURNACE' => 'Furnace Remelt Route', 'MINOR' => 'Rework Route'][$type] ?? 'Rejection Route';
+    }
 
     private static function defaultFlow(string $type): array {
-        if ($type === 'FURNACE') {
+        if ($type === 'COMMON') {
             $names = [
-                ['Rejection Segregation (QC Bin)', 'Rejected pieces separated at the stage'],
+                ['Rejection Received (QC Bin)', 'Rejected pieces from the stage arrive here'],
+                ['Segregation & Counting', 'Sort and count the rejected pieces'],
+                ['Inspection & Decision', 'Decide: how many to Furnace, how many to Rework'],
+            ];
+        } elseif ($type === 'FURNACE') {
+            $names = [
                 ['Scrap Weighing', 'Weigh pieces and confirm scrap kg'],
                 ['Scrap Yard / Store', 'Held in scrap store until melting'],
                 ['Furnace Melting', 'Melted back in the foundry furnace'],
@@ -26,8 +42,6 @@ class RejectionController {
             ];
         } else {
             $names = [
-                ['Rejection Segregation (QC Bin)', 'Rejected pieces separated at the stage'],
-                ['Defect Inspection & Marking', 'Supervisor confirms the defect is repairable'],
                 ['Rework Station', 'Re-buff / re-machine / re-plate'],
                 ['Re-inspection QC', 'Quality check after rework'],
                 ['Return to Production', 'Pieces go back to the selected stage'],
@@ -92,6 +106,13 @@ class RejectionController {
                 INDEX idx_rej_disp (disposition)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ");
+        try {
+            if (!$db->query("SHOW COLUMNS FROM rejection_lots LIKE 'parent_lot_number'")->fetch()) {
+                $db->exec("ALTER TABLE rejection_lots ADD COLUMN parent_lot_number VARCHAR(50) NULL AFTER lot_number");
+            }
+        } catch (Exception $e) {
+            error_log('rejection_lots upgrade failed: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -158,7 +179,7 @@ class RejectionController {
             $updated = $row['updated_at'];
         } else {
             $flow = self::defaultFlow($type);
-            $name = $type === 'FURNACE' ? 'Furnace Remelt Route' : 'Minor Defect Rework Route';
+            $name = self::defaultRouteName($type);
             $updated = null;
         }
         return [
@@ -177,7 +198,7 @@ class RejectionController {
         $db = Database::getConnection();
         self::ensureTables($db);
         $out = [];
-        foreach (self::DISPOSITIONS as $t) {
+        foreach (self::ROUTE_TYPES as $t) {
             $out[$t] = self::loadRoute($db, $t);
         }
         Response::success($out);
@@ -191,10 +212,10 @@ class RejectionController {
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
 
         $type = strtoupper(trim((string)($input['route_type'] ?? '')));
-        if (!in_array($type, self::DISPOSITIONS, true)) {
-            Response::error('route_type must be MINOR or FURNACE.', null, 400);
+        if (!in_array($type, self::ROUTE_TYPES, true)) {
+            Response::error('route_type must be COMMON, MINOR or FURNACE.', null, 400);
         }
-        $name = trim((string)($input['route_name'] ?? '')) ?: ($type === 'FURNACE' ? 'Furnace Remelt Route' : 'Minor Defect Rework Route');
+        $name = trim((string)($input['route_name'] ?? '')) ?: self::defaultRouteName($type);
 
         $nodes = [];
         foreach (($input['nodes'] ?? []) as $n) {
@@ -302,14 +323,15 @@ class RejectionController {
         $db->beginTransaction();
         try {
             foreach ($splits as $i => $sp) {
-                $disp = strtoupper(trim((string)($sp['disposition'] ?? '')));
+                $disp = strtoupper(trim((string)($sp['disposition'] ?? ''))) ?: 'PENDING';
                 $qty = round((float)($sp['quantity'] ?? 0), 3);
                 if ($qty <= 0) continue;
                 if (!in_array($disp, self::DISPOSITIONS, true)) {
-                    throw new InvalidArgumentException('Split #' . ($i + 1) . ': disposition must be MINOR or FURNACE.');
+                    throw new InvalidArgumentException('Split #' . ($i + 1) . ': disposition must be PENDING, MINOR or FURNACE.');
                 }
-                $routes[$disp] = $routes[$disp] ?? self::loadRoute($db, $disp);
-                $steps = $routes[$disp]['steps'];
+                $routeType = self::routeFor($disp);
+                $routes[$routeType] = $routes[$routeType] ?? self::loadRoute($db, $routeType);
+                $steps = $routes[$routeType]['steps'];
                 if (!$steps) throw new RuntimeException("Rejection route {$disp} has no steps.");
 
                 $lotNumber = 'RJ-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
@@ -453,6 +475,9 @@ class RejectionController {
             if ($lot['status'] !== 'OPEN') throw new RuntimeException("Lot {$lot['lot_number']} is already {$lot['status']}.");
 
             $steps = json_decode($lot['steps_json'], true) ?: [];
+            if ($lot['disposition'] === 'PENDING' && (int)$lot['current_step'] >= count($steps) - 1) {
+                throw new InvalidArgumentException('This lot is at the decision step. Decide how many pieces go to Furnace and how many to Rework.');
+            }
             $history = json_decode($lot['history_json'] ?? '[]', true) ?: [];
             $cur = (int)$lot['current_step'];
             $now = date('Y-m-d H:i:s');
@@ -514,6 +539,91 @@ class RejectionController {
         $stmt = $db->prepare("SELECT rl.*, w.warehouse_name FROM rejection_lots rl LEFT JOIN warehouses w ON w.id = rl.warehouse_id WHERE rl.id = ?");
         $stmt->execute([$id]);
         Response::success(self::decodeLot($stmt->fetch()), $message);
+    }
+
+    /**
+     * POST /rejections/lots/decide {id, minor_qty, furnace_qty, return_stage_key, return_stage_name, remarks, operator}
+     * End of the common rejection pipeline: split the lot into a Rework lot and/or a Furnace lot,
+     * each continuing on its own route.
+     */
+    public static function decideLot(): void {
+        $user = Auth::requireAuth();
+        $db = Database::getConnection();
+        self::ensureTables($db);
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id = (int)($input['id'] ?? 0);
+        $minor = round((float)($input['minor_qty'] ?? 0), 3);
+        $furnace = round((float)($input['furnace_qty'] ?? 0), 3);
+        if (!$id) Response::error('Lot id is required.', null, 400);
+        if ($minor < 0 || $furnace < 0) Response::error('Quantities cannot be negative.', null, 400);
+
+        $by = trim((string)($input['operator'] ?? '')) ?: ($user['full_name'] ?? 'Supervisor');
+        $remarks = trim((string)($input['remarks'] ?? ''));
+        $created = [];
+
+        $db->beginTransaction();
+        try {
+            $lot = self::fetchLotForUpdate($db, $id);
+            if ($lot['disposition'] !== 'PENDING') throw new RuntimeException("Lot {$lot['lot_number']} is already decided.");
+            if ($lot['status'] !== 'OPEN') throw new RuntimeException("Lot {$lot['lot_number']} is {$lot['status']}.");
+            $qty = round((float)$lot['quantity'], 3);
+            if (abs(($minor + $furnace) - $qty) > 0.0005) {
+                throw new InvalidArgumentException("Rework ({$minor}) + Furnace ({$furnace}) must equal the lot quantity ({$qty}).");
+            }
+
+            $now = date('Y-m-d H:i:s');
+            $returnKey = trim((string)($input['return_stage_key'] ?? '')) ?: $lot['source_stage_key'];
+            $returnName = trim((string)($input['return_stage_name'] ?? '')) ?: $lot['source_stage_name'];
+
+            foreach ([['MINOR', $minor], ['FURNACE', $furnace]] as [$disp, $q]) {
+                if ($q <= 0) continue;
+                $steps = self::loadRoute($db, $disp)['steps'];
+                if (!$steps) throw new RuntimeException("Rejection route {$disp} has no steps.");
+                $childNo = 'RJ-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
+                $history = [[
+                    'step_index' => 0, 'step_name' => $steps[0]['name'], 'action' => 'CREATED',
+                    'at' => $now, 'by' => $by, 'remarks' => "From pipeline lot {$lot['lot_number']}" . ($remarks ? " - {$remarks}" : ''),
+                ]];
+                $db->prepare("
+                    INSERT INTO rejection_lots (
+                        lot_number, parent_lot_number, release_id, batch_no, fg_id, item_name, source_stage_key, source_stage_name,
+                        defect_reason, disposition, quantity, avg_weight, scrap_weight_kg,
+                        return_stage_key, return_stage_name, steps_json, current_step, history_json, status,
+                        operator, remarks, created_by
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'OPEN', ?, ?, ?)
+                ")->execute([
+                    $childNo, $lot['lot_number'], $lot['release_id'], $lot['batch_no'], $lot['fg_id'], $lot['item_name'],
+                    $lot['source_stage_key'], $lot['source_stage_name'], $lot['defect_reason'], $disp, $q, $lot['avg_weight'],
+                    $disp === 'FURNACE' ? round($q * (float)$lot['avg_weight'], 3) : 0,
+                    $disp === 'MINOR' ? $returnKey : null, $disp === 'MINOR' ? $returnName : null,
+                    json_encode($steps, JSON_UNESCAPED_UNICODE), json_encode($history, JSON_UNESCAPED_UNICODE),
+                    $by, $remarks, $user['id'] ?? null,
+                ]);
+                $created[] = ['disposition' => $disp, 'lot_number' => $childNo, 'quantity' => $q];
+            }
+
+            $history = json_decode($lot['history_json'] ?? '[]', true) ?: [];
+            $steps = json_decode($lot['steps_json'], true) ?: [];
+            $cur = (int)$lot['current_step'];
+            $history[] = [
+                'step_index' => $cur, 'step_name' => $steps[$cur]['name'] ?? 'Decision', 'action' => 'DECIDED',
+                'at' => $now, 'by' => $by, 'remarks' => $remarks, 'minor_qty' => $minor, 'furnace_qty' => $furnace,
+                'children' => array_column($created, 'lot_number'), 'return_stage_name' => $minor > 0 ? $returnName : null,
+            ];
+            $db->prepare("UPDATE rejection_lots SET status = 'COMPLETED', completed_at = NOW(), history_json = ? WHERE id = ?")
+               ->execute([json_encode($history, JSON_UNESCAPED_UNICODE), $id]);
+
+            AuditService::log('REJECTION_DECIDED', 'PRODUCTION', $lot['lot_number'], null, ['minor' => $minor, 'furnace' => $furnace]);
+            $db->commit();
+        } catch (Exception $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            Response::error($e->getMessage(), null, 400);
+        }
+
+        $parts = [];
+        if ($minor > 0) $parts[] = "{$minor} pcs to Rework";
+        if ($furnace > 0) $parts[] = "{$furnace} pcs to Furnace";
+        Response::success(['children' => $created], 'Decision saved: ' . implode(' + ', $parts) . '.');
     }
 
     /** POST /rejections/lots/cancel {id, remarks} */

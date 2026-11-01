@@ -322,6 +322,7 @@ class PermissionService {
             'rejections/lots'              => ['GET' => ['rejections.view'], 'POST' => ['sku_tracking.handoff']],
             'rejections/lots/advance'      => ['*' => ['rejections.process']],
             'rejections/lots/cancel'       => ['*' => ['rejections.cancel']],
+            'rejections/lots/decide'       => ['*' => ['rejections.process']],
             'raw-materials'                => ['POST' => ['masters.edit']],
             'raw-materials/update'         => ['*' => ['masters.edit']],
             'raw-materials/delete'         => ['*' => ['masters.edit']],

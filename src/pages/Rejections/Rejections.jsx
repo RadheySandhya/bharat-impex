@@ -32,7 +32,11 @@ export function Rejections() {
   const [lots, setLots] = useState([]);
   const [lotsLoading, setLotsLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [dispFilter, setDispFilter] = useState('MINOR');
+  const [dispFilter, setDispFilter] = useState('PENDING');
+  const [processes, setProcesses] = useState([]);
+  const [decideLot, setDecideLot] = useState(null);
+  const [decideForm, setDecideForm] = useState({ minor: '0', return_stage_key: '', remarks: '', operator: '' });
+  const [deciding, setDeciding] = useState(false);
   const [routes, setRoutes] = useState({});
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState(null);
@@ -58,6 +62,7 @@ export function Rejections() {
       if (stockRes?.data) setScrapStock(stockRes.data);
       if (bundleRes?.data?.rejection_reasons) setReasons(bundleRes.data.rejection_reasons);
       if (bundleRes?.data?.warehouses) setWarehouses(bundleRes.data.warehouses);
+      if (bundleRes?.data?.processes) setProcesses(bundleRes.data.processes);
     } catch (err) {
       error('Failed to load rejection & scrap records: ' + err.message);
     } finally {
@@ -96,11 +101,14 @@ export function Rejections() {
 
   const metrics = useMemo(() => {
     const open = lots.filter((l) => l.status === 'OPEN');
+    const pendingOpen = open.filter((l) => l.disposition === 'PENDING');
     const minorOpen = open.filter((l) => l.disposition === 'MINOR');
     const furnaceOpen = open.filter((l) => l.disposition === 'FURNACE');
     const totalScrapKg = scrapStock.reduce((sum, s) => sum + Number(s.quantity || 0), 0);
     const totalScrapVal = scrapStock.reduce((sum, s) => sum + Number(s.quantity || 0) * Number(s.unit_price || 0), 0);
     return {
+      pendingQty: pendingOpen.reduce((s, l) => s + l.quantity, 0),
+      pendingLots: pendingOpen.length,
       minorQty: minorOpen.reduce((s, l) => s + l.quantity, 0),
       minorLots: minorOpen.length,
       furnaceQty: furnaceOpen.reduce((s, l) => s + l.quantity, 0),
@@ -111,7 +119,51 @@ export function Rejections() {
     };
   }, [lots, scrapStock]);
 
+  // SKU-tracking stage keys (same rule as the sheet): process_code lowercased, non-alphanumerics -> "_"
+  const stageOptions = useMemo(() => processes.map((p, i) => ({
+    key: p.process_code ? String(p.process_code).toLowerCase().replace(/[^a-z0-9]/g, '_') : `proc_${p.id || i + 1}`,
+    name: p.process_name,
+  })), [processes]);
+
+  const openDecide = (lot) => {
+    setDecideLot(lot);
+    setDecideForm({ minor: '0', return_stage_key: lot.source_stage_key || stageOptions[0]?.key || '', remarks: '', operator: '' });
+  };
+
+  const submitDecide = async (e) => {
+    e?.preventDefault?.();
+    if (!decideLot) return;
+    const total = Number(decideLot.quantity);
+    const minor = Number(decideForm.minor) || 0;
+    const furnace = +(total - minor).toFixed(3);
+    if (minor < 0 || furnace < 0) return error('Rework + Furnace must equal the lot quantity.');
+    const stage = stageOptions.find((s) => s.key === decideForm.return_stage_key);
+    setDeciding(true);
+    try {
+      const res = await api.rejections.decideLot({
+        id: decideLot.id,
+        minor_qty: minor,
+        furnace_qty: furnace,
+        return_stage_key: minor > 0 ? decideForm.return_stage_key : '',
+        return_stage_name: minor > 0 ? (stage?.name || '') : '',
+        remarks: decideForm.remarks,
+        operator: decideForm.operator,
+      });
+      success(res?.message || 'Decision saved.');
+      setDecideLot(null);
+      fetchLots();
+    } catch (err) {
+      error(err.message || 'Could not save the decision.');
+    } finally {
+      setDeciding(false);
+    }
+  };
+
   const openAdvance = (lot) => {
+    if (lot.disposition === 'PENDING' && lot.is_last_step) {
+      openDecide(lot);
+      return;
+    }
     setAdvanceLot(lot);
     setAdvanceForm({
       remarks: '',
@@ -223,7 +275,12 @@ export function Rejections() {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Minor Rework (open)</span>
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">In Pipeline</span>
+          <p className="text-2xl font-black text-amber-600">{metrics.pendingQty} <span className="text-xs text-slate-400 font-semibold">PCS</span></p>
+          <p className="text-[11px] text-slate-500 font-semibold mt-0.5">{metrics.pendingLots} lots awaiting decision</p>
+        </div>
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Rework (open)</span>
           <p className="text-2xl font-black text-blue-700">{metrics.minorQty} <span className="text-xs text-slate-400 font-semibold">PCS</span></p>
           <p className="text-[11px] text-slate-500 font-semibold mt-0.5">{metrics.minorLots} lots being repaired</p>
         </div>
@@ -235,18 +292,13 @@ export function Rejections() {
         <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs">
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Scrap Stock</span>
           <p className="text-2xl font-black text-slate-900">{metrics.totalScrapKg.toFixed(2)} <span className="text-xs text-slate-400 font-semibold">KG</span></p>
-          <p className="text-[11px] text-slate-500 font-semibold mt-0.5">Booked from completed furnace lots</p>
-        </div>
-        <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Scrap Value</span>
-          <p className="text-2xl font-black text-emerald-700">₹{metrics.totalScrapVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</p>
-          <p className="text-[11px] text-slate-500 font-semibold mt-0.5">Recoverable material</p>
+          <p className="text-[11px] text-slate-500 font-semibold mt-0.5">Worth ₹{metrics.totalScrapVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</p>
         </div>
       </div>
 
       {/* Tabs */}
       <div className="flex items-center gap-1 bg-slate-100 p-1.5 rounded-2xl border border-slate-200 max-w-full overflow-x-auto w-fit">
-        {tabBtn('tracking', '1. Rejection Tracking', 'refresh', metrics.minorLots + metrics.furnaceLots)}
+        {tabBtn('tracking', '1. Rejection Tracking', 'refresh', metrics.pendingLots + metrics.minorLots + metrics.furnaceLots)}
         {tabBtn('map', '2. Rejection Process Map', 'layers', 0)}
         {tabBtn('foundry_scrap', '3. Scrap Stock', 'recycle', 0)}
         {tabBtn('defect_catalog', '4. Defect Reasons', 'shieldalert', 0)}
@@ -269,14 +321,18 @@ export function Rejections() {
               ))}
             </div>
             <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs font-semibold">
-              {[['MINOR', `Minor Rework (${lots.filter((x) => x.disposition === 'MINOR' && x.status === 'OPEN').length} open)`], ['FURNACE', `Furnace (${lots.filter((x) => x.disposition === 'FURNACE' && x.status === 'OPEN').length} open)`]].map(([v, l]) => (
+              {[
+                ['PENDING', `Pipeline (${lots.filter((x) => x.disposition === 'PENDING' && x.status === 'OPEN').length} awaiting)`],
+                ['MINOR', `Rework (${lots.filter((x) => x.disposition === 'MINOR' && x.status === 'OPEN').length} open)`],
+                ['FURNACE', `Furnace (${lots.filter((x) => x.disposition === 'FURNACE' && x.status === 'OPEN').length} open)`],
+              ].map(([v, l]) => (
                 <button
                   key={v}
                   type="button"
                   onClick={() => setDispFilter(v)}
                   className={`px-2.5 py-1 rounded-md cursor-pointer ${
                     dispFilter === v
-                      ? (v === 'FURNACE' ? 'bg-rose-600 text-white font-bold' : v === 'MINOR' ? 'bg-blue-600 text-white font-bold' : 'bg-white text-slate-900 shadow-2xs font-bold')
+                      ? (v === 'FURNACE' ? 'bg-rose-600 text-white font-bold' : v === 'MINOR' ? 'bg-blue-600 text-white font-bold' : 'bg-amber-500 text-white font-bold')
                       : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
@@ -298,7 +354,7 @@ export function Rejections() {
 
           <RejectionTrackingSheet
             lots={visibleLots}
-            route={routes[dispFilter]}
+            route={routes[dispFilter === 'PENDING' ? 'COMMON' : dispFilter]}
             disposition={dispFilter}
             canProcess={hasPermission('rejections.process')}
             canCancel={hasPermission('rejections.cancel')}
@@ -325,6 +381,107 @@ export function Rejections() {
       {activeTab === 'defect_catalog' && (
         <DataTable columns={reasonColumns} data={reasons} loading={loading} searchPlaceholder="Search defect catalog..." />
       )}
+
+
+      {/* Decision at the end of the pipeline: split into Rework and Furnace */}
+      <Modal
+        isOpen={!!decideLot}
+        onClose={() => setDecideLot(null)}
+        title={decideLot ? `Decide: ${decideLot.lot_number}` : ''}
+        footer={
+          <>
+            <button type="button" onClick={() => setDecideLot(null)} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700">Cancel</button>
+            <button type="submit" form="decide-form" disabled={deciding} className="px-4 py-2 rounded-xl bg-[#007AFF] hover:bg-[#0A6CF0] disabled:opacity-60 text-xs font-semibold text-white">
+              {deciding ? 'Saving...' : 'Save Decision'}
+            </button>
+          </>
+        }
+      >
+        {decideLot && (() => {
+          const total = Number(decideLot.quantity);
+          const minor = Number(decideForm.minor) || 0;
+          const furnace = Math.max(0, +(total - minor).toFixed(3));
+          return (
+            <form id="decide-form" onSubmit={submitDecide} className="space-y-4 text-sm">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                <div className="font-semibold text-slate-900">{decideLot.item_name}</div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  #{decideLot.batch_no} • rejected at {decideLot.source_stage_name || '—'} • {decideLot.defect_reason || 'No reason'}
+                </div>
+                <div className="mt-2 text-2xl font-bold tracking-tight text-slate-900 tabular-nums">{total} <span className="text-sm font-medium text-slate-500">pcs to decide</span></div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setDecideForm({ ...decideForm, minor: String(total) })} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 cursor-pointer">All Rework</button>
+                <button type="button" onClick={() => setDecideForm({ ...decideForm, minor: '0' })} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 cursor-pointer">All Furnace</button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-3">
+                  <label htmlFor="dec-minor" className="block text-xs font-semibold text-blue-900 mb-1">Rework (repairable)</label>
+                  <input
+                    id="dec-minor"
+                    type="number"
+                    min="0"
+                    max={total}
+                    step="any"
+                    value={decideForm.minor}
+                    onChange={(e) => {
+                      const v = Math.max(0, Math.min(total, Number(e.target.value) || 0));
+                      setDecideForm({ ...decideForm, minor: e.target.value === '' ? '' : String(v) });
+                    }}
+                    className="w-full rounded-xl px-3 py-2 border border-blue-300 text-lg font-bold tabular-nums"
+                  />
+                </div>
+                <div className="rounded-2xl border border-rose-200 bg-rose-50/60 p-3">
+                  <label htmlFor="dec-furnace" className="block text-xs font-semibold text-rose-900 mb-1">Furnace (melt)</label>
+                  <input
+                    id="dec-furnace"
+                    type="number"
+                    min="0"
+                    max={total}
+                    step="any"
+                    value={furnace}
+                    onChange={(e) => {
+                      const f = Math.max(0, Math.min(total, Number(e.target.value) || 0));
+                      setDecideForm({ ...decideForm, minor: String(+(total - f).toFixed(3)) });
+                    }}
+                    className="w-full rounded-xl px-3 py-2 border border-rose-300 text-lg font-bold tabular-nums"
+                  />
+                  <p className="text-[11px] text-rose-800/80 mt-1">≈ {(furnace * Number(decideLot.avg_weight || 0)).toFixed(2)} kg scrap</p>
+                </div>
+              </div>
+
+              {minor > 0 && (
+                <div>
+                  <label htmlFor="dec-stage" className="block text-xs font-semibold text-slate-700 mb-1">After rework, return the {minor} pcs to stage</label>
+                  <select
+                    id="dec-stage"
+                    value={decideForm.return_stage_key}
+                    onChange={(e) => setDecideForm({ ...decideForm, return_stage_key: e.target.value })}
+                    className="w-full rounded-xl px-3 py-2 border border-slate-300"
+                  >
+                    {stageOptions.map((s) => (
+                      <option key={s.key} value={s.key}>{s.name}{s.key === decideLot.source_stage_key ? ' (where rejected)' : ''}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="dec-op" className="block text-xs font-semibold text-slate-700 mb-1">Decided by</label>
+                  <input id="dec-op" value={decideForm.operator} onChange={(e) => setDecideForm({ ...decideForm, operator: e.target.value })} placeholder="Supervisor" className="w-full rounded-xl px-3 py-2 border border-slate-300" />
+                </div>
+                <div>
+                  <label htmlFor="dec-rem" className="block text-xs font-semibold text-slate-700 mb-1">Remarks</label>
+                  <input id="dec-rem" value={decideForm.remarks} onChange={(e) => setDecideForm({ ...decideForm, remarks: e.target.value })} placeholder="Optional" className="w-full rounded-xl px-3 py-2 border border-slate-300" />
+                </div>
+              </div>
+            </form>
+          );
+        })()}
+      </Modal>
 
       {/* Advance / complete lot */}
       <Modal

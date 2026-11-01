@@ -126,19 +126,8 @@ export function StageHandoffModal({
     if (goodQty + rejQty <= 0) return;
     if (isFinalToReady && goodQty > 0 && !selectedWarehouseId && warehouses.length > 0) return;
 
-    const returnStageName = returnStageOptions.find((s) => s.key === returnStage)?.name || currentStageInfo.name;
-    const rejectionSplits = [];
-    if (minorQty > 0) {
-      rejectionSplits.push({
-        disposition: 'MINOR',
-        quantity: Number(minorQty),
-        return_stage_key: returnStage,
-        return_stage_name: returnStageName,
-      });
-    }
-    if (furnaceQty > 0) {
-      rejectionSplits.push({ disposition: 'FURNACE', quantity: Number(furnaceQty) });
-    }
+    // All rejected pieces enter the common rejection pipeline as one lot
+    const rejectionSplits = rejQty > 0 ? [{ disposition: 'PENDING', quantity: Number(rejQty) }] : [];
 
     if (isFinalToReady && selectedWarehouseId) {
       try { localStorage.setItem('bharat_fg_output_godown', String(selectedWarehouseId)); } catch (err) {}
@@ -152,17 +141,17 @@ export function StageHandoffModal({
         nextStageKey: currentStageInfo.nextKey,
         goodQty: Number(goodQty),
         rejQty: Number(rejQty),
-        minorQty: Number(minorQty),
-        furnaceQty: Number(furnaceQty),
+        minorQty: 0,
+        furnaceQty: 0,
         rejectionSplits,
         rejReason,
         // legacy single disposition flag (kept for callers that still read it)
-        disposition: minorQty > 0 && furnaceQty > 0 ? 'MIXED' : (minorQty > 0 ? 'REWORK' : 'RECAST_SCRAP'),
-        reworkStage: minorQty > 0 ? returnStage : null,
+        disposition: 'PIPELINE',
+        reworkStage: null,
         operatorName,
         remarks,
         warehouseId: isFinalToReady ? Number(selectedWarehouseId) || null : null,
-        scrapWeightKg: (Number(furnaceQty) * avgWeight).toFixed(3)
+        scrapWeightKg: (Number(rejQty) * avgWeight).toFixed(3)
       });
     }
     onClose();
@@ -243,83 +232,28 @@ export function StageHandoffModal({
           </div>
         </div>
 
-        {/* Rejection split: minor defect vs furnace */}
+        {/* Rejected pieces go to the rejection pipeline; furnace vs rework is decided there */}
         {rejQty > 0 && (
-          <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5 space-y-3">
-            <div className="flex items-center justify-between border-b border-amber-200/80 pb-2">
-              <span className="font-bold text-amber-900 text-xs flex items-center gap-1.5">
+          <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-amber-950 text-xs flex items-center gap-1.5">
                 <Icon name="alert" size="xs" className="text-amber-600" ariaHidden={true} />
-                What happens to the {rejQty} rejected PCS?
+                {rejQty} PCS go to the Rejection Pipeline
               </span>
-              <div className="flex items-center gap-1">
-                <button type="button" onClick={() => setMinorQty(rejQty)} className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white border border-blue-300 text-blue-700 hover:bg-blue-50 cursor-pointer">
-                  All Minor
-                </button>
-                <button type="button" onClick={() => setMinorQty(0)} className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 cursor-pointer">
-                  All Furnace
-                </button>
-              </div>
             </div>
-
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Defect Reason</label>
+              <label className="block font-semibold text-slate-700 mb-1" htmlFor="rej-reason">Defect Reason</label>
               <select
+                id="rej-reason"
                 value={rejReason}
                 onChange={(e) => setRejReason(e.target.value)}
-                className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 text-slate-900 font-medium focus:ring-2 focus:ring-amber-500"
+                className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 text-slate-900"
               >
                 {DEFECT_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div className={`p-2.5 rounded-xl border ${minorQty > 0 ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-500/20' : 'bg-white border-slate-200'}`}>
-                <label className="block font-bold text-blue-900 text-xs mb-1">1. Minor Defect (Rework)</label>
-                <input
-                  type="number"
-                  min="0"
-                  max={rejQty}
-                  value={minorQty}
-                  onChange={(e) => handleMinorChange(e.target.value)}
-                  className="w-full bg-white border border-blue-300 rounded-lg px-2.5 py-1.5 font-mono font-black text-sm text-blue-900"
-                  aria-label="Minor defect quantity"
-                />
-                <p className="text-[10px] mt-1 text-slate-500 font-medium">Repaired, then returned to production.</p>
-              </div>
-              <div className={`p-2.5 rounded-xl border ${furnaceQty > 0 ? 'bg-rose-50 border-rose-400 ring-2 ring-rose-500/20' : 'bg-white border-slate-200'}`}>
-                <label className="block font-bold text-rose-900 text-xs mb-1">2. Furnace (Melt & Recast)</label>
-                <input
-                  type="number"
-                  min="0"
-                  max={rejQty}
-                  value={furnaceQty}
-                  onChange={(e) => handleFurnaceChange(e.target.value)}
-                  className="w-full bg-white border border-rose-300 rounded-lg px-2.5 py-1.5 font-mono font-black text-sm text-rose-900"
-                  aria-label="Furnace quantity"
-                />
-                <p className="text-[10px] mt-1 text-slate-500 font-medium">
-                  ≈ {(furnaceQty * avgWeight).toFixed(2)} kg scrap to furnace.
-                </p>
-              </div>
-            </div>
-
-            {minorQty > 0 && (
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">After rework, return the {minorQty} PCS to stage</label>
-                <select
-                  value={returnStage}
-                  onChange={(e) => setReturnStage(e.target.value)}
-                  className="w-full bg-white border border-blue-300 rounded-xl px-3 py-1.5 text-slate-900 font-semibold"
-                >
-                  {returnStageOptions.map((s) => (
-                    <option key={s.key} value={s.key}>{s.name}{s.key === stageKey ? ' (this stage)' : ''}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <p className="text-[10px] text-amber-800 font-medium">
-              Each part is tracked as a rejection lot in <strong>Rejection & Scrap Stock</strong> and moves through the steps of its rejection process.
+            <p className="text-[11px] text-amber-900/80">
+              Furnace or rework is decided later inside the rejection pipeline (Rejections → Pipeline).
             </p>
           </div>
         )}
