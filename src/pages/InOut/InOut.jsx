@@ -704,13 +704,13 @@ export function InOut() {
 
               {/* Default Godown for new rows */}
               {warehouses.length > 0 && (
-                <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-300 rounded-lg pl-2 pr-1 py-0.5">
+                <div className="flex flex-wrap items-center gap-1.5 max-w-full bg-amber-50 border border-amber-300 rounded-lg pl-2 pr-1 py-0.5">
                   <Building2 className="w-3.5 h-3.5 text-amber-700" />
                   <span className="text-[11px] font-bold text-amber-900 whitespace-nowrap">Default Godown</span>
                   <select
                     value={defaultWarehouseId}
                     onChange={(e) => setDefaultWarehouseId(e.target.value)}
-                    className="text-xs font-semibold bg-white border border-amber-200 rounded-md px-1.5 py-1 text-slate-900 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                    className="min-w-0 max-w-full text-xs font-semibold bg-white border border-amber-200 rounded-md px-1.5 py-1 text-slate-900 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500/30"
                     title="New rows will use this godown"
                   >
                     {warehouses.map((w) => (

@@ -467,3 +467,98 @@
   :root { --bi-separator: rgba(0, 0, 0, 0.45); --bi-secondary: #3A3A3C; }
   .material, .material-strong { background: #FFFFFF !important; }
 }
+
+/* ---------- Phones: every data table becomes a stack of cards ---------- */
+@media (max-width: 767px) {
+  /* Scroll boxes around tables: let the cards flow with the page instead of a tiny scroll area */
+  div:has(> table[data-bi-cards]) {
+    overflow: visible !important;
+    max-height: none !important;
+    min-height: 0 !important;
+  }
+  table[data-bi-cards] {
+    display: block;
+    width: 100% !important;
+    min-width: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
+  table[data-bi-cards] thead { display: none !important; }
+  table[data-bi-cards] tbody { display: block; border: 0 !important; }
+
+  table[data-bi-cards] tbody tr {
+    display: block;
+    margin: 0 0 10px;
+    padding: 4px 14px;
+    background: #FFFFFF;
+    border-radius: 16px;
+    border: 0.5px solid var(--bi-separator) !important;
+    box-shadow: var(--shadow-xs);
+  }
+  /* Section / empty-state rows read as headings, not cards */
+  table[data-bi-cards] tbody tr:has(> td[data-bi-full]:only-child) {
+    background: transparent;
+    border: 0 !important;
+    box-shadow: none;
+    padding: 6px 2px;
+  }
+
+  table[data-bi-cards] tbody td {
+    display: grid;
+    grid-template-columns: minmax(0, 42%) minmax(0, 1fr);
+    column-gap: 12px;
+    align-items: center;
+    justify-items: end;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    padding: 9px 0 !important;
+    border: 0 !important;
+    border-bottom: 0.5px solid var(--bi-separator) !important;
+    text-align: right;
+    white-space: normal !important;
+    position: static !important;
+    font-size: 14px;
+    border-radius: 0 !important;
+  }
+  table[data-bi-cards] tbody td:last-child { border-bottom: 0 !important; }
+  table[data-bi-cards] tbody td::before {
+    content: attr(data-label);
+    grid-column: 1;
+    grid-row: 1 / span 12;
+    justify-self: start;
+    align-self: center;
+    text-align: left;
+    font-size: 12px;
+    line-height: 1.3;
+    font-weight: 500;
+    color: #6E6E73;
+    font-family: var(--font-sans);
+    letter-spacing: -0.004em;
+    text-transform: none;
+  }
+  table[data-bi-cards] tbody td > * { grid-column: 2; max-width: 100%; min-width: 0; }
+  table[data-bi-cards] tbody td [class*="min-w-"] { min-width: 0 !important; }
+  table[data-bi-cards] tbody td:not([data-label])::before,
+  table[data-bi-cards] tbody td[data-label=""]::before { content: none; }
+  table[data-bi-cards] tbody td:not([data-label]),
+  table[data-bi-cards] tbody td[data-label=""] { grid-template-columns: minmax(0, 1fr); }
+  table[data-bi-cards] tbody td:not([data-label]) > *,
+  table[data-bi-cards] tbody td[data-label=""] > * { grid-column: 1; }
+
+  /* First cell = card title */
+  table[data-bi-cards] tbody tr > td:first-child:not([data-bi-full]) { font-size: 15px; font-weight: 600; }
+
+  /* Full-width cells (headings, notes, expanded details) */
+  table[data-bi-cards] tbody td[data-bi-full] {
+    display: block;
+    text-align: left;
+    border-bottom: 0 !important;
+  }
+  table[data-bi-cards] tbody td[data-bi-full]::before { content: none; }
+
+  /* Editable cells stay usable */
+  table[data-bi-cards] tbody td input:not([type="checkbox"]):not([type="radio"]),
+  table[data-bi-cards] tbody td select,
+  table[data-bi-cards] tbody td textarea { width: 100%; min-width: 0; font-size: 16px; }
+}
