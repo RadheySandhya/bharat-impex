@@ -95,15 +95,25 @@ body.bi-app .fixed.inset-0[class*="bg-slate-900"], body.bi-app .fixed.inset-0[cl
   -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
 }
 
-/* ── Phone tab bar: translucent material ────────────────────────────────── */
+/* ── Phone tab bar -> floating greyish 3D bar ─────────────────────────── */
 body.bi-app nav.fixed.bottom-0.material {
-  background: rgba(249, 249, 251, 0.78) !important;
-  -webkit-backdrop-filter: saturate(180%) blur(24px) !important;
-  backdrop-filter: saturate(180%) blur(24px) !important;
-  box-shadow: inset 0 0.5px 0 rgba(60, 60, 67, 0.2) !important;
-  border: 0; border-radius: 0;
+  left: 10px !important; right: 10px !important;
+  bottom: calc(10px + env(safe-area-inset-bottom)) !important;
+  padding-bottom: 0 !important;
+  border-radius: 24px;
+  background: var(--sa-bar-bg) !important;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  box-shadow: var(--sa-bar-shadow) !important;
+  -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
 }
-body.bi-app nav.fixed.bottom-0.material button[aria-current="page"] { color: var(--bi-accent) !important; }
+body.bi-app nav.fixed.bottom-0.material > div { padding: 5px; gap: 2px; }
+body.bi-app nav.fixed.bottom-0.material button { height: 50px !important; border-radius: 18px; color: rgba(255, 255, 255, 0.62) !important; }
+body.bi-app nav.fixed.bottom-0.material button[aria-current="page"] {
+  color: #1D1D1F !important;
+  background: linear-gradient(180deg, #FFFFFF 0%, #ECECF0 100%);
+  box-shadow: inset 0 1px 0 #fff, 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+body.bi-app nav.fixed.bottom-0.material button[aria-current="page"] svg { color: #007AFF; }
 
 /* ── Keyboard shortcut hints ────────────────────────────────────────────── */
 body.bi-app kbd {
@@ -118,7 +128,7 @@ body.bi-app kbd {
   body.bi-app .bi-dialog { animation: none !important; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  body.bi-app header.sticky.material, body.bi-app nav.fixed.bottom-0.material {
+  body.bi-app header.sticky.material {
     background: #F5F5F7 !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
   }
 }
