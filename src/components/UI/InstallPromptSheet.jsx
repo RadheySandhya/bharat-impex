@@ -86,7 +86,7 @@ export function InstallPromptSheet() {
         </button>
 
         <div className="flex items-center gap-4">
-          <img src="./icons/icon-192.png" alt="" className="w-16 h-16 rounded-[16px] shadow-md shrink-0" />
+          <img src="./icons/icon-192.png?v=20261115b" alt="" className="w-16 h-16 rounded-[16px] shadow-md shrink-0" />
           <div className="min-w-0 pr-8">
             <h2 className="text-[19px] font-semibold tracking-[-0.022em] text-slate-900 leading-tight">Install Bharat Impex</h2>
             <p className="text-[14px] text-slate-500 mt-0.5 leading-snug">Open it from your home screen like an app — full screen and faster.</p>

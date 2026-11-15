@@ -6,7 +6,7 @@ import { PanelLeftClose, PanelLeftOpen, ChevronRight, LogOut } from 'lucide-reac
 import { InstallAppButton } from '../UI/InstallAppButton';
 
 // Source list, grouped the way people think about the factory
-const SECTIONS = [
+export const SECTIONS = [
   {
     title: 'Production',
     items: [
@@ -41,6 +41,7 @@ const SECTIONS = [
           { id: 'sub_skus', label: 'Brand Sub-SKUs' },
           { id: 'users', label: 'Users & Roles' },
           { id: 'company', label: 'Company' },
+          { id: 'defect_reasons', label: 'Defect Reasons' },
           { id: 'audit', label: 'Audit Log' },
         ],
       },
@@ -105,7 +106,7 @@ export function Sidebar({ activeTab, setActiveTab, settingsSubTab, setSettingsSu
         {/* App identity */}
         <div className={`h-14 px-4 flex items-center justify-between shrink-0 ${rail ? 'lg:px-0 lg:justify-center' : ''}`}>
           <div className={`flex items-center gap-2.5 min-w-0 ${rail ? 'lg:hidden' : ''}`}>
-            <img src="./icons/icon-192.png" alt="" className="w-7 h-7 rounded-[8px] shadow-xs" />
+            <img src="./icons/icon-192.png?v=20261115b" alt="" className="w-7 h-7 rounded-[8px] shadow-xs" />
             <div className="min-w-0 leading-tight">
               <p className="text-[14px] font-semibold tracking-[-0.016em] text-white truncate">Bharat Impex</p>
               <p className="text-[11px] text-white/50 truncate">Manufacturing</p>

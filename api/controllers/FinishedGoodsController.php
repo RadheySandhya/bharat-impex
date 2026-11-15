@@ -53,7 +53,7 @@ class FinishedGoodsController {
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
 
         $name = trim($input['product_name'] ?? '');
-        $unitId = (int)($input['unit_id'] ?? 0);
+        $unitId = (int)($input['unit_id'] ?? 0) ?: 3; // default PCS
         $categoryId = !empty($input['category_id']) ? (int)$input['category_id'] : null;
         $sellingPrice = (float)($input['selling_price'] ?? 0);
         $minStock = (float)($input['minimum_stock'] ?? 0);

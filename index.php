@@ -27,5 +27,16 @@ $html = file_get_contents($distFile);
 $v = time();
 $html = preg_replace('/(href|src)="\.\/assets\/(index-[^"]+\.(js|css))"/', '$1="./assets/$2?v=' . $v . '"', $html);
 
+// SolveAll360 shared 3D layer + Bharat adapter as the LAST stylesheets (UI only; build untouched)
+$saHost  = strtolower(preg_replace('/:\d+$/', '', (string)($_SERVER['HTTP_HOST'] ?? '')));
+$saLocal = in_array($saHost, ['localhost', '127.0.0.1', '::1', '[::1]'], true);
+$saRoot  = $saLocal ? 'http://localhost/SolveAll360%20Public%20html/' : 'https://solveall360.com/';
+$saShared  = $saRoot . 'shared/solveall-3d.css?v=' . (@filemtime(dirname(__DIR__, 2) . '/shared/solveall-3d.css') ?: '20261104');
+$saAdapter = './assets/css/sa3d-adapter.css?v=' . (@filemtime(__DIR__ . '/assets/css/sa3d-adapter.css') ?: '20261104');
+$saLinks = '    <link rel="stylesheet" href="' . htmlspecialchars($saShared, ENT_QUOTES, 'UTF-8') . '" data-sa3d="shared">' . PHP_EOL
+         . '    <link rel="stylesheet" href="' . htmlspecialchars($saAdapter, ENT_QUOTES, 'UTF-8') . '" data-sa3d="adapter">' . PHP_EOL;
+$html = preg_replace('#</head>#i', $saLinks . '</head>', $html, 1);
+$html = preg_replace('#<body class="#i', '<body class="sa3d bi-app ', $html, 1);
+
 echo $html;
 exit;

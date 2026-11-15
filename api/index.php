@@ -142,6 +142,9 @@ try {
         case 'stock/ledger':
             if ($method === 'GET') StockController::ledger();
             break;
+        case 'stock/reconciliation':
+            if ($method === 'GET') StockController::reconciliation();
+            break;
         case 'stock/adjust':
             if ($method === 'POST') StockController::adjust();
             break;
@@ -402,6 +405,9 @@ try {
             break;
         case 'rejections/lots/cancel':
             if ($method === 'POST') RejectionController::cancelLot();
+            break;
+        case 'rejections/lots/move':
+            if ($method === 'POST') RejectionController::moveLot();
             break;
 
         // Tally Item Mappings

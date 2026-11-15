@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react';
 import { InstallAppButton } from '../../components/UI/InstallAppButton';
+import { StockBackground } from '../../components/UI/StockBackground';
 
 export function Login() {
   const [username, setUsername] = useState('admin');
@@ -40,21 +41,22 @@ export function Login() {
 
   return (
     <div
-      className="min-h-screen bg-[#F5F5F7] flex flex-col items-center justify-center px-5 py-12"
+      className="relative isolate min-h-screen bg-[#08090b] flex flex-col items-center justify-center px-5 py-12 overflow-hidden"
       style={{ paddingTop: 'max(env(safe-area-inset-top), 48px)', paddingBottom: 'max(env(safe-area-inset-bottom), 48px)' }}
     >
-      <div className="w-full max-w-[380px]">
+      <StockBackground />
+      <div className="bi-login-glass relative z-10 w-full max-w-[400px] rounded-[28px] p-7 sm:p-8">
         {/* Identity */}
         <div className="flex flex-col items-center text-center">
-          <img src="./icons/icon-192.png" alt="" className="w-[72px] h-[72px] rounded-[18px] shadow-lg" />
-          <h1 className="mt-5 text-[28px] font-bold tracking-[-0.028em] text-slate-900 leading-tight">Bharat Impex</h1>
-          <p className="mt-1 text-[15px] text-slate-500 tracking-[-0.01em]">Sign in to continue</p>
+          <img src="./icons/icon-192.png?v=20261115b" alt="" className="w-[72px] h-[72px] rounded-[18px] shadow-lg ring-1 ring-white/20" />
+          <h1 className="mt-5 text-[28px] font-bold tracking-[-0.028em] text-slate-900 leading-tight !text-white">Bharat Impex</h1>
+          <p className="mt-1 text-[15px] text-white/60 tracking-[-0.01em]">Sign in to continue</p>
         </div>
 
         <form onSubmit={handleSubmit} className="mt-8 space-y-4" noValidate>
           {/* Grouped inset fields */}
-          <div className="bg-white rounded-[14px] shadow-xs overflow-hidden" style={{ boxShadow: '0 0 0 0.5px rgba(60,60,67,0.18), 0 1px 2px rgba(0,0,0,0.04)' }}>
-            <label className="flex items-center gap-3 px-4 h-[50px]">
+          <div className="space-y-2.5">
+            <label className="bi-login-field flex items-center gap-3 px-4 h-[50px]">
               <span className="sr-only">Username or email</span>
               <input
                 type="text"
@@ -64,12 +66,11 @@ export function Login() {
                 autoComplete="username"
                 autoCapitalize="none"
                 spellCheck={false}
-                className="flex-1 min-w-0 h-full bg-transparent !border-0 !shadow-none text-[16px] text-slate-900 placeholder:text-[#A1A1A6] focus:outline-none"
+                className="bi-login-input flex-1 min-w-0 h-full bg-transparent !border-0 !shadow-none text-[16px] text-white placeholder:text-white/40 focus:outline-none"
                 required
               />
             </label>
-            <div className="ml-4 h-px bg-black/[0.08]" aria-hidden="true" />
-            <label className="flex items-center gap-2 pl-4 pr-1.5 h-[50px]">
+            <label className="bi-login-field flex items-center gap-2 pl-4 pr-1.5 h-[50px]">
               <span className="sr-only">Password</span>
               <input
                 type={showPassword ? 'text' : 'password'}
@@ -77,7 +78,7 @@ export function Login() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Password"
                 autoComplete="current-password"
-                className="flex-1 min-w-0 h-full bg-transparent !border-0 !shadow-none text-[16px] text-slate-900 placeholder:text-[#A1A1A6] focus:outline-none"
+                className="bi-login-input flex-1 min-w-0 h-full bg-transparent !border-0 !shadow-none text-[16px] text-white placeholder:text-white/40 focus:outline-none"
                 required
               />
               <button
@@ -86,7 +87,7 @@ export function Login() {
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
                 aria-pressed={showPassword}
                 title={showPassword ? 'Hide password' : 'Show password'}
-                className="w-10 h-10 flex items-center justify-center rounded-full text-[#8E8E93] hover:text-slate-700 cursor-pointer"
+                className="w-10 h-10 flex items-center justify-center rounded-full text-white/50 hover:text-white cursor-pointer"
               >
                 {showPassword ? <EyeOff className="w-[18px] h-[18px]" /> : <Eye className="w-[18px] h-[18px]" />}
               </button>
@@ -94,7 +95,7 @@ export function Login() {
           </div>
 
           {errorMsg && (
-            <p role="alert" className="flex items-start gap-2 px-1 text-[13px] text-[#D70015]">
+            <p role="alert" className="flex items-start gap-2 px-1 text-[13px] text-[#FF6961]">
               <AlertCircle className="w-4 h-4 mt-px shrink-0" aria-hidden="true" />
               <span>{errorMsg}</span>
             </p>
@@ -111,7 +112,7 @@ export function Login() {
 
         {/* Test accounts (development) */}
         <div className="mt-8">
-          <p className="px-1 pb-2 text-[13px] text-slate-500">Test accounts</p>
+          <p className="px-1 pb-2 text-[13px] text-white/55">Test accounts</p>
           <div className="bg-white rounded-[14px] overflow-hidden" style={{ boxShadow: '0 0 0 0.5px rgba(60,60,67,0.18)' }}>
             {[['admin', 'admin123', 'Administrator'], ['operator', 'operator123', 'Shop Operator']].map(([u, p, label], i) => (
               <button
@@ -128,7 +129,7 @@ export function Login() {
         </div>
 
         <div className="mt-6 flex justify-center">
-          <InstallAppButton className="h-9 px-4 rounded-full bg-black/[0.05] hover:bg-black/[0.08] text-[#007AFF] text-[13px]" />
+          <InstallAppButton className="h-9 px-4 rounded-full bg-white/10 hover:bg-white/15 text-white text-[13px]" />
         </div>
       </div>
     </div>

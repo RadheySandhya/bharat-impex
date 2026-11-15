@@ -184,16 +184,6 @@ export function Processes() {
       ),
     },
     {
-      header: 'Standard Duration',
-      key: 'standard_duration_minutes',
-      align: 'right',
-      render: (mins) => (
-        <span className="font-mono font-semibold text-slate-700 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
-          🕒 {mins} mins
-        </span>
-      ),
-    },
-    {
       header: 'Associated SKUs',
       key: 'mapped_product_count',
       align: 'center',
@@ -280,9 +270,6 @@ export function Processes() {
                 <span className="font-bold text-slate-900 text-xs whitespace-nowrap">
                   {p.process_name}
                 </span>
-                <span className="text-[10px] text-slate-400 font-mono">
-                  {p.standard_duration_minutes || 30}m
-                </span>
               </div>
               {idx < processes.length - 1 && (
                 <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -338,18 +325,6 @@ export function Processes() {
                 value={processForm.process_code}
                 onChange={(e) => setProcessForm({ ...processForm, process_code: e.target.value.toUpperCase() })}
                 placeholder="e.g. PROC-CAST, PROC-CNC"
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-900 text-xs font-mono font-bold focus:ring-2 focus:ring-slate-900 focus:bg-white"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-700 font-bold mb-1 text-xs">
-                Standard Duration (Minutes)
-              </label>
-              <input
-                type="number"
-                min="1"
-                value={processForm.standard_duration_minutes}
-                onChange={(e) => setProcessForm({ ...processForm, standard_duration_minutes: parseInt(e.target.value) || 0 })}
                 className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-900 text-xs font-mono font-bold focus:ring-2 focus:ring-slate-900 focus:bg-white"
               />
             </div>

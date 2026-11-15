@@ -463,10 +463,10 @@ export function IMSTriNagarMaster() {
             <div className="flex items-center gap-1.5 overflow-x-auto text-xs pt-0.5">
               {[
                 { id: 'ALL', label: `All Items (${kpis.total})` },
-                { id: 'RED', label: `🔴 Red (${kpis.red})` },
-                { id: 'YELLOW', label: `🟡 Yellow (${kpis.yellow})` },
-                { id: 'GREEN', label: `🟢 Green (${kpis.green})` },
-                { id: 'PURPLE', label: `🟣 Purple (${kpis.purple})` },
+                { id: 'RED', dot: '#FF3B30', label: `Red (${kpis.red})` },
+                { id: 'YELLOW', dot: '#FFCC00', label: `Yellow (${kpis.yellow})` },
+                { id: 'GREEN', dot: '#34C759', label: `Green (${kpis.green})` },
+                { id: 'PURPLE', dot: '#AF52DE', label: `Purple (${kpis.purple})` },
               ].map((st) => (
                 <button
                   key={st.id}
@@ -477,6 +477,7 @@ export function IMSTriNagarMaster() {
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
+                  {st.dot && <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style={{ background: st.dot }} />}
                   {st.label}
                 </button>
               ))}
@@ -486,8 +487,43 @@ export function IMSTriNagarMaster() {
         </div>
       </div>
 
-      {/* Spreadsheet Matrix Grid */}
-      <div className="bg-white border border-slate-300 rounded-2xl shadow-xs overflow-hidden">
+      {/* Phones: only the latest stock, as small boxes (2 per row). Tap a box for the breakdown. */}
+      <div className="md:hidden">
+        {filteredItems.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-400 text-sm">No matching items.</div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            {filteredItems.map((row) => {
+              const zone = getStockZone(row.current_stock, row.max_level, row.min_level);
+              const z = getZoneStyles(zone);
+              const ratio = row.max_level > 0 ? Math.round((Number(row.current_stock) / Number(row.max_level)) * 100) : null;
+              return (
+                <button
+                  key={`m-${row.material_type}-${row.id}-${row.cat_no}`}
+                  type="button"
+                  onClick={() => handleOpenStockDetails(row)}
+                  className="text-left bg-white rounded-xl border border-slate-200 p-2.5 active:scale-[0.98] transition-transform"
+                  style={{ borderLeft: `4px solid ${z.style?.color || '#94a3b8'}` }}
+                >
+                  <div className="text-[12px] font-semibold text-slate-900 leading-tight line-clamp-2 min-h-[30px]">{row.item_name}</div>
+                  <div className="text-[10px] font-mono text-slate-500 mt-0.5">{row.cat_no}</div>
+                  <div className="flex items-baseline gap-1 mt-1.5">
+                    <span className="text-[20px] font-bold tabular-nums" style={{ color: z.style?.color }}>{Number(row.current_stock).toLocaleString('en-IN')}</span>
+                    <span className="text-[10px] text-slate-500 font-semibold">{row.unit_code || 'PCS'}</span>
+                  </div>
+                  <div className="flex items-center justify-between mt-0.5 text-[10px]">
+                    <span className={`px-1.5 py-0.5 rounded-md font-semibold ${z.badgeBg || ''} border`}>{ratio !== null ? `${ratio}%` : 'No max'}</span>
+                    <span className="text-slate-400">{row.material_type === 'RM' ? 'Child Part' : 'Finished Good'}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Spreadsheet Matrix Grid (tablet / desktop) */}
+      <div className="hidden md:block bg-white border border-slate-300 rounded-2xl shadow-xs overflow-hidden">
         <div className="overflow-x-auto max-h-[680px]">
           <table className="w-full text-left text-xs border-collapse font-sans">
             {/* Header */}
@@ -568,7 +604,7 @@ export function IMSTriNagarMaster() {
               ) : (
                 filteredItems.map((row, idx) => (
                   <tr
-                    key={row.id}
+                    key={`${row.material_type}-${row.id}-${row.cat_no}`}
                     className="hover:bg-blue-50/50 transition-colors group font-medium"
                   >
                     {/* S.No */}

@@ -11,14 +11,14 @@ import {
   CheckCircle2,
   Package,
   Layers,
-  Download
-} from 'lucide-react';
+  Download, X } from 'lucide-react';
 import { DataTable } from '../../components/UI/DataTable';
 import { StatusBadge } from '../../components/UI/StatusBadge';
 import { Modal } from '../../components/UI/Modal';
 import Icon from '../../components/UI/Icon';
 import { BulkStockUploadModal } from '../../components/UI/BulkStockUploadModal';
 import { IMSTriNagarMaster } from './IMSTriNagarMaster';
+import { StockReconciliation } from './StockReconciliation';
 import SearchableSelect from '../../components/UI/SearchableSelect';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
@@ -50,7 +50,7 @@ export function Inventory() {
     material_name: '',
     warehouse_id: 1,
     physical_quantity: '',
-    unit_id: 1,
+    unit_id: 3, // PCS
     reason: 'Physical Stock Verification',
     remarks: '',
   });
@@ -79,7 +79,7 @@ export function Inventory() {
     material_name: '',
     warehouse_id: 1,
     quantity: '',
-    unit_id: 1,
+    unit_id: 3, // PCS
     rate: '',
     remarks: 'Initial stock balance verification',
   });
@@ -542,8 +542,18 @@ export function Inventory() {
       </div>
 
 
-      {/* Main Table Display */}
-      <IMSTriNagarMaster key={imsRefreshKey} />
+      {/* Live stock sheet | item-wise reconciliation between two dates */}
+      <div className="flex items-center gap-1 bg-slate-100 p-1.5 rounded-2xl border border-slate-200 w-fit">
+        {[['ims_master', 'Live Stock'], ['reconciliation', 'Stock Reconciliation']].map(([v, l]) => (
+          <button key={v} type="button" onClick={() => setActiveSubTab(v)}
+            className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer ${activeSubTab === v ? 'bg-white text-slate-900 shadow-xs border border-slate-200/80' : 'text-slate-600 hover:text-slate-900'}`}>
+            {l}
+          </button>
+        ))}
+      </div>
+      {activeSubTab === 'reconciliation'
+        ? <StockReconciliation warehouses={warehouses} />
+        : <IMSTriNagarMaster key={imsRefreshKey} />}
 
       {/* Stock Adjustment Modal */}
       <Modal
@@ -827,7 +837,7 @@ export function Inventory() {
                       className="h-9 w-8 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 font-bold"
                       title="Remove line"
                     >
-                      ✕
+                      <X className="w-4 h-4 mx-auto" />
                     </button>
                   </div>
                 );

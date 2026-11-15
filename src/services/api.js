@@ -95,6 +95,11 @@ export const api = {
       const q = new URLSearchParams(params).toString();
       return request(`/stock?${q}`);
     },
+    // Item-wise Opening / In / Out / Closing between two dates
+    getReconciliation: (params = {}) => {
+      const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''));
+      return request(`/stock/reconciliation?${new URLSearchParams(clean).toString()}`);
+    },
     getLedger: (params = {}) => {
       const q = new URLSearchParams(params).toString();
       return request(`/stock/ledger?${q}`);
@@ -469,6 +474,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+    // Free tracking: send any qty of an open lot to a stage / back to production / furnace
+    moveLot: (data) => request('/rejections/lots/move', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   },
 
   mappings: {
@@ -506,6 +516,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+    getReasons: () => request('/settings/rejection-reasons'),
     saveReason: (data) => request('/settings/rejection-reasons', {
       method: 'POST',
       body: JSON.stringify(data),

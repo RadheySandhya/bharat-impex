@@ -86,6 +86,63 @@ class StockController {
     /**
      * Stock Ledger history
      */
+    /**
+     * GET /stock/reconciliation?from_date=&to_date=&material_type=ALL|RM|FG|SCRAP&warehouse_id=
+     * Item-wise stock reconciliation between two dates, from the immutable stock ledger:
+     * Opening (before from_date) + In - Out (within the range) = Closing.
+     */
+    public static function reconciliation(): void {
+        Auth::requireAuth();
+        $db = Database::getConnection();
+        $from = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['from_date'] ?? '') ? $_GET['from_date'] : date('Y-m-d', strtotime('-6 days'));
+        $to   = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to_date'] ?? '') ? $_GET['to_date'] : date('Y-m-d');
+        if ($from > $to) { [$from, $to] = [$to, $from]; }
+        $type = strtoupper(trim($_GET['material_type'] ?? 'ALL'));
+        $wh = (int)($_GET['warehouse_id'] ?? 0);
+
+        $where = '1=1';
+        $params = [':from1' => $from, ':from2' => $from, ':to' => $to, ':from3' => $from, ':to2' => $to];
+        if (in_array($type, ['RM', 'FG', 'SCRAP'], true)) { $where .= ' AND sl.material_type = :mt'; $params[':mt'] = $type; }
+        if ($wh > 0) { $where .= ' AND sl.warehouse_id = :wh'; $params[':wh'] = $wh; }
+
+        $stmt = $db->prepare("
+            SELECT sl.material_type, sl.material_id,
+                   MAX(sl.material_code) AS material_code,
+                   MAX(CASE WHEN sl.material_type = 'RM' THEN rm.material_name
+                            WHEN sl.material_type = 'FG' THEN fg.product_name
+                            WHEN sl.material_type = 'SCRAP' THEN sm.scrap_name END) AS material_name,
+                   MAX(u.unit_code) AS unit_code,
+                   SUM(CASE WHEN sl.transaction_date < :from1 THEN sl.quantity_in - sl.quantity_out ELSE 0 END) AS opening,
+                   SUM(CASE WHEN sl.transaction_date >= :from2 AND sl.transaction_date <= :to THEN sl.quantity_in ELSE 0 END) AS qty_in,
+                   SUM(CASE WHEN sl.transaction_date >= :from3 AND sl.transaction_date <= :to2 THEN sl.quantity_out ELSE 0 END) AS qty_out,
+                   COUNT(CASE WHEN sl.transaction_date >= '{$from}' AND sl.transaction_date <= '{$to}' THEN 1 END) AS entries
+            FROM stock_ledger sl
+            LEFT JOIN units u ON u.id = sl.unit_id
+            LEFT JOIN raw_materials rm ON sl.material_type = 'RM' AND rm.id = sl.material_id
+            LEFT JOIN finished_goods fg ON sl.material_type = 'FG' AND fg.id = sl.material_id
+            LEFT JOIN scrap_materials sm ON sl.material_type = 'SCRAP' AND sm.id = sl.material_id
+            WHERE {$where} AND sl.transaction_date <= :to3
+            GROUP BY sl.material_type, sl.material_id
+            ORDER BY FIELD(sl.material_type, 'FG', 'RM', 'SCRAP'), material_code
+        ");
+        $params[':to3'] = $to;
+        $stmt->execute($params);
+        $rows = [];
+        $tot = ['opening' => 0, 'qty_in' => 0, 'qty_out' => 0, 'closing' => 0];
+        foreach ($stmt->fetchAll() as $r) {
+            $o = round((float)$r['opening'], 3); $i = round((float)$r['qty_in'], 3); $q = round((float)$r['qty_out'], 3);
+            $row = [
+                'material_type' => $r['material_type'], 'material_id' => (int)$r['material_id'],
+                'material_code' => $r['material_code'], 'material_name' => $r['material_name'] ?: $r['material_code'],
+                'unit_code' => $r['unit_code'] ?: 'PCS', 'opening' => $o, 'qty_in' => $i, 'qty_out' => $q,
+                'closing' => round($o + $i - $q, 3), 'entries' => (int)$r['entries'],
+            ];
+            foreach ($tot as $k => $_) $tot[$k] += $row[$k];
+            $rows[] = $row;
+        }
+        Response::success(['from_date' => $from, 'to_date' => $to, 'items' => $rows, 'totals' => $tot]);
+    }
+
     public static function ledger(): void {
         Auth::requireAuth();
         $db = Database::getConnection();
@@ -171,7 +228,7 @@ class StockController {
         $matName = $input['material_name'] ?? '';
         $warehouseId = (int)($input['warehouse_id'] ?? 1);
         $physicalQty = (float)($input['physical_quantity'] ?? 0);
-        $unitId = (int)($input['unit_id'] ?? 1);
+        $unitId = (int)($input['unit_id'] ?? 3); // default PCS
         $reason = trim($input['reason'] ?? 'Physical Verification');
         $remarks = trim($input['remarks'] ?? '');
 
@@ -322,7 +379,7 @@ class StockController {
         $matName = $input['material_name'] ?? '';
         $warehouseId = (int)($input['warehouse_id'] ?? 1);
         $quantity = (float)($input['quantity'] ?? 0);
-        $unitId = (int)($input['unit_id'] ?? 1);
+        $unitId = (int)($input['unit_id'] ?? 3); // default PCS
         $rate = (float)($input['rate'] ?? 0.0);
         $remarks = trim($input['remarks'] ?? 'Opening balance initialization');
 
@@ -771,14 +828,15 @@ class StockController {
 
         // Fetch current live stock for all active finished goods
         $stmt = $db->query("
-            SELECT fg.id, fg.fg_code, fg.minimum_stock, fg.maximum_stock,
+            SELECT fg.id, fg.fg_code, fg.minimum_stock,
+                   CASE WHEN fg.maximum_stock > 0 THEN fg.maximum_stock ELSE fg.reorder_level END AS maximum_stock,
                    COALESCE(c.category_name, 'GENERAL') as group_name,
                    COALESCE(SUM(s.quantity), 0) as current_stock
             FROM finished_goods fg
             LEFT JOIN categories c ON fg.category_id = c.id
             LEFT JOIN stock s ON s.material_type = 'FG' AND s.material_id = fg.id
             WHERE fg.active = 1
-            GROUP BY fg.id, fg.fg_code, fg.minimum_stock, fg.maximum_stock, c.category_name
+            GROUP BY fg.id, fg.fg_code, fg.minimum_stock, fg.maximum_stock, fg.reorder_level, c.category_name
         ");
         $rows = $stmt->fetchAll();
 
@@ -862,7 +920,7 @@ class StockController {
                 SELECT fg.id, 'FG' as material_type, 'Finished Good' as item_type,
                        fg.fg_code as cat_no, fg.product_name as item_name, 
                        COALESCE(c.category_name, 'Finished Good') as group_name,
-                       fg.minimum_stock as min_level, fg.maximum_stock as max_level,
+                       fg.minimum_stock as min_level, CASE WHEN fg.maximum_stock > 0 THEN fg.maximum_stock ELSE fg.reorder_level END as max_level,
                        COALESCE(u.unit_code, 'PCS') as unit_code,
                        COALESCE(SUM(s.quantity), 0) as current_stock
                 FROM finished_goods fg
@@ -882,7 +940,7 @@ class StockController {
                 $params[] = $group;
                 $params[] = $group;
             }
-            $fgSql .= " GROUP BY fg.id, fg.fg_code, fg.product_name, c.category_name, fg.minimum_stock, fg.maximum_stock, u.unit_code";
+            $fgSql .= " GROUP BY fg.id, fg.fg_code, fg.product_name, c.category_name, fg.minimum_stock, fg.maximum_stock, fg.reorder_level, u.unit_code";
             $queries[] = $fgSql;
         }
 
@@ -891,7 +949,7 @@ class StockController {
                 SELECT rm.id, 'RM' as material_type, 'Raw Material' as item_type,
                        rm.rm_code as cat_no, rm.material_name as item_name, 
                        COALESCE(c.category_name, 'Raw Material') as group_name,
-                       rm.minimum_stock as min_level, rm.maximum_stock as max_level,
+                       rm.minimum_stock as min_level, CASE WHEN rm.maximum_stock > 0 THEN rm.maximum_stock ELSE rm.reorder_level END as max_level,
                        COALESCE(u.unit_code, 'KG') as unit_code,
                        COALESCE(SUM(s.quantity), 0) as current_stock
                 FROM raw_materials rm
@@ -911,7 +969,7 @@ class StockController {
                 $params[] = $group;
                 $params[] = $group;
             }
-            $rmSql .= " GROUP BY rm.id, rm.rm_code, rm.material_name, c.category_name, rm.minimum_stock, rm.maximum_stock, u.unit_code";
+            $rmSql .= " GROUP BY rm.id, rm.rm_code, rm.material_name, c.category_name, rm.minimum_stock, rm.maximum_stock, rm.reorder_level, u.unit_code";
             $queries[] = $rmSql;
         }
 

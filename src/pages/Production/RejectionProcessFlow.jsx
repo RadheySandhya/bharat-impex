@@ -225,9 +225,9 @@ export function RejectionProcessFlow() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs">
-        <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white ${routeType === 'FURNACE' ? 'bg-rose-600' : 'bg-blue-600'}`}>
+      <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0 ${routeType === 'FURNACE' ? 'bg-rose-600' : 'bg-blue-600'}`}>
             <Icon className="w-5 h-5" />
           </div>
           <div>
@@ -243,7 +243,7 @@ export function RejectionProcessFlow() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap xl:flex-nowrap shrink-0">
           <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
             {Object.entries(ROUTE_META).map(([type, m]) => {
               const TIcon = m.icon;
@@ -316,11 +316,10 @@ export function RejectionProcessFlow() {
       {/* Canvas */}
       <div
         ref={canvasRef}
-        className="relative bg-slate-50 border-2 border-slate-300 rounded-3xl shadow-inner overflow-auto select-none"
+        className="pm-canvas relative overflow-auto select-none"
         style={{
-          height: '520px',
-          backgroundImage: 'radial-gradient(#94a3b8 1.2px, transparent 1.2px)',
-          backgroundSize: '24px 24px',
+          '--pm-accent': meta.stroke,
+          height: '560px',
           cursor: connectingFrom ? 'crosshair' : dragId ? 'grabbing' : 'default',
         }}
         onMouseMove={onMouseMove}
@@ -331,29 +330,29 @@ export function RejectionProcessFlow() {
         <div className="relative" style={{ width: canvasW, height: canvasH }}>
           <svg className="absolute inset-0 overflow-visible" width={canvasW} height={canvasH} style={{ pointerEvents: 'none' }}>
             <defs>
-              <marker id={`rej-arrow-${routeType}`} markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
-                <path d="M0,0 L10,5 L0,10 z" fill={meta.stroke} />
+              <marker id={`rej-arrow-${routeType}`} markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+                <path d="M1,1 L9,5 L1,9 z" fill={meta.stroke} />
               </marker>
             </defs>
             {edges.map((e) => {
               const a = nodes.find((n) => n.id === e.from);
               const b = nodes.find((n) => n.id === e.to);
               if (!a || !b) return null;
-              const x1 = a.x + CARD_W, y1 = a.y + CARD_H / 2, x2 = b.x - 4, y2 = b.y + CARD_H / 2;
+              const x1 = a.x + CARD_W + 11, y1 = a.y + CARD_H / 2, x2 = b.x - 13, y2 = b.y + CARD_H / 2;
               const dx = Math.max(50, Math.abs(x2 - x1) * 0.45);
               const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
               const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
               return (
                 <g key={e.id}>
-                  <path d={d} stroke={meta.stroke} strokeWidth="3" fill="none" markerEnd={`url(#rej-arrow-${routeType})`} />
+                  <path d={d} stroke={meta.stroke} strokeWidth="2.5" strokeLinecap="round" fill="none" opacity="0.9" markerEnd={`url(#rej-arrow-${routeType})`} />
                   <g
                     transform={`translate(${mx}, ${my})`}
                     style={{ pointerEvents: 'auto', cursor: 'pointer' }}
                     onClick={() => { setEdges((prev) => prev.filter((x) => x.id !== e.id)); setIsDirty(true); }}
                   >
                     <title>Remove connection</title>
-                    <circle r="9" fill="#fff" stroke="#e11d48" strokeWidth="1.5" />
-                    <text textAnchor="middle" dy="3.5" fontSize="10" fontWeight="bold" fill="#e11d48">✕</text>
+                    <circle r="9" fill="#fff" stroke="rgba(60,60,67,0.25)" strokeWidth="1" />
+                    <text textAnchor="middle" dy="3.5" fontSize="10" fontWeight="bold" fill="#FF3B30">✕</text>
                   </g>
                 </g>
               );
@@ -361,7 +360,7 @@ export function RejectionProcessFlow() {
             {connectingFrom && (() => {
               const a = nodes.find((n) => n.id === connectingFrom);
               if (!a) return null;
-              const x1 = a.x + CARD_W, y1 = a.y + CARD_H / 2;
+              const x1 = a.x + CARD_W + 11, y1 = a.y + CARD_H / 2;
               return <path d={`M ${x1} ${y1} L ${mouse.x} ${mouse.y}`} stroke={meta.stroke} strokeWidth="2.5" strokeDasharray="5 4" fill="none" />;
             })()}
           </svg>
@@ -371,41 +370,36 @@ export function RejectionProcessFlow() {
             return (
               <div
                 key={n.id}
-                className={`absolute bg-white rounded-2xl border-2 shadow-md ${meta.border} ${dragId === n.id ? 'shadow-xl z-30' : 'z-20'}`}
+                className={`pm-card absolute ${dragId === n.id ? 'is-dragging z-30' : 'z-20'}`}
                 style={{ left: n.x, top: n.y, width: CARD_W, height: CARD_H, cursor: dragId === n.id ? 'grabbing' : 'grab' }}
                 onMouseDown={(e) => onNodeMouseDown(e, n.id)}
               >
                 <div
-                  className={`port absolute -left-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white border-2 flex items-center justify-center cursor-pointer ${connectingFrom && connectingFrom !== n.id ? 'ring-4 ring-emerald-300 border-emerald-500' : 'border-slate-500'}`}
+                  className={`pm-port in port ${connectingFrom && connectingFrom !== n.id ? 'target' : ''}`}
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => endConnect(e, n.id)}
                   title="Connect here (input)"
-                >
-                  <div className="w-2 h-2 rounded-full bg-slate-600" />
-                </div>
+                />
                 <div
-                  className={`port absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white border-2 flex items-center justify-center cursor-pointer ${connectingFrom === n.id ? 'ring-4 ring-blue-300' : ''}`}
-                  style={{ borderColor: meta.stroke }}
+                  className={`pm-port out port ${connectingFrom === n.id ? 'active' : ''}`}
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => startConnect(e, n.id)}
                   title="Click, then click another step's left dot to connect (output)"
-                >
-                  <div className="w-2 h-2 rounded-full" style={{ background: meta.stroke }} />
-                </div>
+                />
 
                 <div className="p-2.5 h-full flex flex-col gap-1">
                   <div className="flex items-center gap-1.5">
-                    <span className={`text-[10px] font-extrabold font-mono px-1.5 py-0.5 rounded ${meta.chip}`}>#{stepNo}</span>
+                    <span className="pm-chip">#{stepNo}</span>
                     <input
                       value={n.name}
                       onChange={(e) => updateNode(n.id, 'name', e.target.value)}
-                      className="flex-1 min-w-0 font-extrabold text-xs text-slate-900 bg-transparent hover:bg-slate-50 focus:bg-white px-1 py-0.5 rounded border border-transparent hover:border-slate-300 focus:border-blue-500 focus:outline-none"
+                      className="pm-name"
                       aria-label="Step name"
                     />
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); deleteStep(n.id); }}
-                      className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                      className="pm-del"
                       title="Delete step"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -418,9 +412,9 @@ export function RejectionProcessFlow() {
                     className="w-full text-[11px] text-slate-600 bg-slate-50 hover:bg-white focus:bg-white px-1.5 py-1 rounded border border-slate-200 focus:border-blue-500 focus:outline-none"
                     aria-label="Step note"
                   />
-                  <div className="text-[9px] font-bold text-slate-400 flex justify-between mt-auto">
-                    <span>{stepNo === ordered.length ? (routeType === 'COMMON' ? 'Final: decision' : routeType === 'FURNACE' ? 'Final: books scrap' : 'Final: returns pcs') : 'Hold to drag'}</span>
-                    <span style={{ color: meta.stroke }}>● ➔ connect</span>
+                  <div className="pm-foot mt-auto">
+                    <span>{stepNo === ordered.length ? (routeType === 'COMMON' ? 'Final: decision' : routeType === 'FURNACE' ? 'Final: books scrap' : 'Final: returns pcs') : 'Drag to move'}</span>
+                    <span className="pm-connect" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => startConnect(e, n.id)}>{connectingFrom === n.id ? 'Connecting…' : 'Connect →'}</span>
                   </div>
                 </div>
               </div>

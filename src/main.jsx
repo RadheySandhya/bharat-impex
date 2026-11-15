@@ -4,6 +4,7 @@ import App from './App.jsx';
 import './index.css';
 import { initSecurityProtection } from './utils/securityProtection';
 import { initMobileTables } from './utils/mobileTables';
+import { initUiSounds } from './utils/uiSounds';
 
 // Capture the browser's install prompt as early as possible so an "Install App" button can use it
 window.addEventListener('beforeinstallprompt', (e) => {
@@ -14,6 +15,9 @@ window.addEventListener('beforeinstallprompt', (e) => {
 
 // Phones: show data tables as cards
 initMobileTables();
+
+// Click / menu sound effects
+initUiSounds();
 
 // Initialize Browser DevTools & Inspect Element Blocker
 initSecurityProtection();

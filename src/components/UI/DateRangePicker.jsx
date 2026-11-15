@@ -2,14 +2,14 @@ import React, { useState, useRef, useEffect } from 'react';
 import Icon from './Icon';
 
 export function DateRangePicker({ 
-  value = { from: '', to: '', preset: 'THIS_MONTH' }, 
+  value = { from: '', to: '', preset: 'LAST_7_DAYS' }, 
   onChange,
   className = '' 
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [internalFrom, setInternalFrom] = useState(value.from || '');
   const [internalTo, setInternalTo] = useState(value.to || '');
-  const [selectedPreset, setSelectedPreset] = useState(value.preset || 'THIS_MONTH');
+  const [selectedPreset, setSelectedPreset] = useState(value.preset || 'LAST_7_DAYS');
   const dropdownRef = useRef(null);
 
   // Quick preset calculations
@@ -20,6 +20,9 @@ export function DateRangePicker({
 
     if (presetKey === 'TODAY') {
       // today
+    } else if (presetKey === 'LAST_7_DAYS') {
+      fromDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+      toDate = new Date();
     } else if (presetKey === 'THIS_WEEK') {
       const day = now.getDay();
       const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Monday
@@ -35,7 +38,7 @@ export function DateRangePicker({
       return { from: '', to: '', preset: 'ALL_TIME' };
     }
 
-    const fmt = (d) => d.toISOString().split('T')[0];
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     return {
       from: fmt(fromDate),
       to: fmt(toDate),
@@ -84,6 +87,7 @@ export function DateRangePicker({
   // Format label for display
   const getDisplayLabel = () => {
     if (selectedPreset === 'TODAY') return 'Today';
+    if (selectedPreset === 'LAST_7_DAYS') return 'Last 7 Days';
     if (selectedPreset === 'THIS_WEEK') return 'This Week';
     if (selectedPreset === 'THIS_MONTH') return 'This Month';
     if (selectedPreset === 'LAST_MONTH') return 'Last Month';
@@ -129,6 +133,7 @@ export function DateRangePicker({
           <div className="grid grid-cols-2 gap-1.5 mb-3.5">
             {[
               { id: 'TODAY', label: 'Today' },
+              { id: 'LAST_7_DAYS', label: 'Last 7 Days' },
               { id: 'THIS_WEEK', label: 'This Week' },
               { id: 'THIS_MONTH', label: 'This Month' },
               { id: 'LAST_MONTH', label: 'Last Month' },

@@ -162,7 +162,7 @@ class SubChildPartController {
         $subPartCode  = strtoupper(trim($input['sub_part_code'] ?? ''));
         $brandName    = trim($input['brand_name'] ?? '');
         $partyId      = !empty($input['party_id']) ? (int)$input['party_id'] : null;
-        $unitId       = (int)($input['unit_id'] ?? 1);
+        $unitId       = (int)($input['unit_id'] ?? 3); // default PCS
         $standardRate = (float)($input['standard_rate'] ?? 0);
         $description  = trim($input['description'] ?? '');
         $active       = isset($input['active']) ? (int)$input['active'] : 1;
@@ -195,7 +195,7 @@ class SubChildPartController {
         }
 
         if ($unitId <= 0) {
-            $unitId = (int)($parentRm['unit_id'] ?? 1);
+            $unitId = (int)($parentRm['unit_id'] ?? 3);
         }
 
         if ($standardRate <= 0) {

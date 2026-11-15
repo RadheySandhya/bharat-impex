@@ -3,13 +3,14 @@
 // BHARAT IMPEX — REJECTION TRACKING & REJECTION PROCESS ROUTES
 // ============================================================
 //
-// A rejected quantity found at any SKU-tracking stage is split by disposition:
-//   MINOR   = minor defect, reworked and returned to a production stage
-//   FURNACE = unrecoverable, weighed as scrap and melted in the furnace
-// Each split becomes a "rejection lot" that walks through the steps of its
-// rejection process route (drawn on the Rejection Process map). Completing a
-// FURNACE lot books the scrap weight into SCRAP stock; completing a MINOR lot
-// returns the pieces to the chosen production stage of the batch.
+// Rejected pieces found at any SKU-tracking stage become a "rejection lot" that starts in the
+// Rejection Bin. There is no fixed rejection route: the decision is made later, step by step.
+// From wherever the pieces are, any quantity can be sent:
+//   STAGE   -> to any production stage for work (still tracked, e.g. re-machining)
+//   RETURN  -> back into the production flow of the batch at any stage (lot completes)
+//   FURNACE -> total reject: weighed and booked into scrap stock (lot completes)
+// Moving part of a lot splits it: the moved pieces become a child lot, the rest stay put.
+// Every move is kept in history_json, which the tracker popup shows as the lot's journey.
 
 class RejectionController {
 
@@ -17,6 +18,7 @@ class RejectionController {
     public const DISPOSITIONS = ['PENDING', 'MINOR', 'FURNACE'];
     // Routes: COMMON = pipeline every rejection goes through first, ending in the decision
     public const ROUTE_TYPES = ['COMMON', 'MINOR', 'FURNACE'];
+    public const BIN_NAME = 'Rejection Bin';
 
     private static function routeFor(string $disposition): string {
         return $disposition === 'PENDING' ? 'COMMON' : $disposition;
@@ -109,6 +111,12 @@ class RejectionController {
         try {
             if (!$db->query("SHOW COLUMNS FROM rejection_lots LIKE 'parent_lot_number'")->fetch()) {
                 $db->exec("ALTER TABLE rejection_lots ADD COLUMN parent_lot_number VARCHAR(50) NULL AFTER lot_number");
+            }
+            if (!$db->query("SHOW COLUMNS FROM rejection_lots LIKE 'location_type'")->fetch()) {
+                $db->exec("ALTER TABLE rejection_lots
+                    ADD COLUMN location_type VARCHAR(20) NULL AFTER current_step,
+                    ADD COLUMN location_key VARCHAR(100) NULL AFTER location_type,
+                    ADD COLUMN location_name VARCHAR(150) NULL AFTER location_key");
             }
         } catch (Exception $e) {
             error_log('rejection_lots upgrade failed: ' . $e->getMessage());
@@ -264,6 +272,21 @@ class RejectionController {
         $idx = $r['current_step'];
         $r['current_step_name'] = $r['steps'][$idx]['name'] ?? null;
         $r['is_last_step'] = $idx >= count($r['steps']) - 1;
+
+        // Where the pieces are now (lots created before free tracking have no location columns set)
+        if (empty($r['location_type'])) {
+            if ($r['status'] === 'COMPLETED') {
+                $r['location_type'] = $r['disposition'] === 'FURNACE' ? 'FURNACE' : 'RETURNED';
+                $r['location_name'] = $r['disposition'] === 'FURNACE' ? 'Furnace (scrap booked)' : ($r['return_stage_name'] ?: 'Production');
+            } elseif ($r['disposition'] === 'PENDING') {
+                $r['location_type'] = 'BIN';
+                $r['location_name'] = self::BIN_NAME;
+            } else {
+                $r['location_type'] = $r['disposition'] === 'FURNACE' ? 'BIN' : 'STAGE';
+                $r['location_key'] = $r['return_stage_key'];
+                $r['location_name'] = $r['disposition'] === 'FURNACE' ? self::BIN_NAME : ($r['return_stage_name'] ?: self::BIN_NAME);
+            }
+        }
         return $r;
     }
 
@@ -280,12 +303,13 @@ class RejectionController {
         $disp = strtoupper(trim($_GET['disposition'] ?? ''));
         if ($disp && $disp !== 'ALL') { $sql .= " AND rl.disposition = ?"; $params[] = $disp; }
         if (!empty($_GET['batch_no'])) { $sql .= " AND rl.batch_no = ?"; $params[] = trim($_GET['batch_no']); }
+        if (!empty($_GET['source_stage_key'])) { $sql .= " AND rl.source_stage_key = ?"; $params[] = trim($_GET['source_stage_key']); }
         if (!empty($_GET['from_date'])) { $sql .= " AND DATE(rl.created_at) >= ?"; $params[] = $_GET['from_date']; }
         if (!empty($_GET['to_date'])) { $sql .= " AND DATE(rl.created_at) <= ?"; $params[] = $_GET['to_date']; }
         $search = trim($_GET['search'] ?? '');
         if ($search !== '') {
-            $sql .= " AND (rl.batch_no LIKE ? OR rl.item_name LIKE ? OR rl.lot_number LIKE ? OR rl.defect_reason LIKE ?)";
-            array_push($params, "%{$search}%", "%{$search}%", "%{$search}%", "%{$search}%");
+            $sql .= " AND (rl.batch_no LIKE ? OR rl.item_name LIKE ? OR rl.lot_number LIKE ? OR rl.defect_reason LIKE ? OR rl.location_name LIKE ?)";
+            array_push($params, "%{$search}%", "%{$search}%", "%{$search}%", "%{$search}%", "%{$search}%");
         }
         $sql .= " ORDER BY (rl.status = 'OPEN') DESC, rl.id DESC LIMIT 500";
 
@@ -329,28 +353,26 @@ class RejectionController {
                 if (!in_array($disp, self::DISPOSITIONS, true)) {
                     throw new InvalidArgumentException('Split #' . ($i + 1) . ': disposition must be PENDING, MINOR or FURNACE.');
                 }
-                $routeType = self::routeFor($disp);
-                $routes[$routeType] = $routes[$routeType] ?? self::loadRoute($db, $routeType);
-                $steps = $routes[$routeType]['steps'];
-                if (!$steps) throw new RuntimeException("Rejection route {$disp} has no steps.");
-
                 $lotNumber = 'RJ-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
+                $srcName = trim((string)($input['source_stage_name'] ?? '')) ?: 'stage';
                 $history = [[
-                    'step_index' => 0,
-                    'step_name'  => $steps[0]['name'],
-                    'action'     => 'CREATED',
-                    'at'         => $now,
-                    'by'         => $operator,
-                    'remarks'    => trim((string)($input['remarks'] ?? '')),
+                    'action'    => 'REJECTED',
+                    'step_name' => self::BIN_NAME,
+                    'from'      => $srcName,
+                    'to'        => self::BIN_NAME,
+                    'qty'       => $qty,
+                    'at'        => $now,
+                    'by'        => $operator,
+                    'remarks'   => trim((string)(($input['defect_reason'] ?? '') . ((($input['remarks'] ?? '') !== '') ? ' - ' . $input['remarks'] : ''))),
                 ]];
 
                 $db->prepare("
                     INSERT INTO rejection_lots (
                         lot_number, release_id, batch_no, fg_id, item_name, source_stage_key, source_stage_name,
                         defect_reason, disposition, quantity, avg_weight, scrap_weight_kg,
-                        return_stage_key, return_stage_name, steps_json, current_step, history_json, status,
-                        operator, remarks, created_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'OPEN', ?, ?, ?)
+                        return_stage_key, return_stage_name, steps_json, current_step, location_type, location_key, location_name,
+                        history_json, status, operator, remarks, created_by
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'BIN', NULL, ?, ?, 'OPEN', ?, ?, ?)
                 ")->execute([
                     $lotNumber,
                     !empty($input['release_id']) ? (int)$input['release_id'] : null,
@@ -366,7 +388,8 @@ class RejectionController {
                     $disp === 'FURNACE' ? round($qty * $avgWeight, 3) : 0,
                     $disp === 'MINOR' ? (trim((string)($sp['return_stage_key'] ?? '')) ?: trim((string)($input['source_stage_key'] ?? ''))) : null,
                     $disp === 'MINOR' ? (trim((string)($sp['return_stage_name'] ?? '')) ?: trim((string)($input['source_stage_name'] ?? ''))) : null,
-                    json_encode($steps, JSON_UNESCAPED_UNICODE),
+                    '[]',
+                    self::BIN_NAME,
                     json_encode($history, JSON_UNESCAPED_UNICODE),
                     $operator,
                     trim((string)($input['remarks'] ?? '')),
@@ -414,6 +437,62 @@ class RejectionController {
         ")->execute([(int)$kg]);
         $id = (int)$db->lastInsertId();
         return $db->query("SELECT * FROM scrap_materials WHERE id = {$id}")->fetch();
+    }
+
+    /**
+     * Repaired pieces are OK: credit them to stock right away (same quantity) and count them as
+     * Ready in the batch's SKU-tracking sheet. FG batch -> Finished Good stock; in-house child-part
+     * batch -> Child Part stock. Godown: the one chosen, else the plan's godown, else the first.
+     */
+    private static function addRepairedToStock(PDO $db, array $lot, float $qty, int $warehouseId, string $by, ?int $userId): array {
+        $plan = null;
+        try {
+            $st = $db->prepare("SELECT pr.id AS release_id, pr.stage_tracking, pp.warehouse_id, pp.fg_id, COALESCE(pp.item_type, 'FG') AS item_type, pp.rm_id
+                                FROM planning_releases pr JOIN production_planning pp ON pp.id = pr.planning_id
+                                WHERE pr.id = ? OR pr.release_number = ? LIMIT 1");
+            $st->execute([(int)($lot['release_id'] ?? 0), $lot['batch_no']]);
+            $plan = $st->fetch();
+        } catch (Exception $e) {
+            $st = $db->prepare("SELECT pr.id AS release_id, pr.stage_tracking, pp.warehouse_id, pp.fg_id, 'FG' AS item_type, NULL AS rm_id
+                                FROM planning_releases pr JOIN production_planning pp ON pp.id = pr.planning_id
+                                WHERE pr.id = ? OR pr.release_number = ? LIMIT 1");
+            $st->execute([(int)($lot['release_id'] ?? 0), $lot['batch_no']]);
+            $plan = $st->fetch();
+        }
+        $isRM = $plan && $plan['item_type'] === 'RM' && !empty($plan['rm_id']);
+        if ($isRM) {
+            $it = $db->prepare("SELECT id, rm_code AS code, material_name AS name, unit_id, standard_rate AS rate FROM raw_materials WHERE id = ?");
+            $it->execute([(int)$plan['rm_id']]);
+        } else {
+            $fgId = (int)($lot['fg_id'] ?: ($plan['fg_id'] ?? 0));
+            $it = $db->prepare("SELECT id, fg_code AS code, product_name AS name, unit_id, selling_price AS rate FROM finished_goods WHERE id = ?");
+            $it->execute([$fgId]);
+        }
+        $item = $it->fetch();
+        if (!$item) throw new RuntimeException('Could not find the product of this batch to add the repaired pieces to stock.');
+
+        $wh = InventoryService::getValidWarehouseId($warehouseId ?: (int)($plan['warehouse_id'] ?? 0));
+        InventoryService::increaseStock(
+            $isRM ? 'RM' : 'FG', (int)$item['id'], $item['code'], $item['name'], $wh, $qty, (int)($item['unit_id'] ?: 3),
+            (float)($item['rate'] ?? 0), 'PRODUCTION_OUTPUT', $lot['lot_number'], $lot['batch_no'], $lot['lot_number'], date('Y-m-d'),
+            "Repaired rejection {$lot['lot_number']}: {$qty} pcs OK (rejected at {$lot['source_stage_name']}). By {$by}", $userId
+        );
+
+        // SKU tracking sheet: count the repaired pieces as Ready
+        if ($plan && !empty($plan['stage_tracking'])) {
+            $tracking = json_decode($plan['stage_tracking'], true);
+            if (is_array($tracking)) {
+                $tracking['ready'] = $tracking['ready'] ?? ['date_form' => '', 'stock_qty' => 0, 'total_rejection' => 0, 'status' => 'In Production'];
+                $tracking['ready']['stock_qty'] = (float)($tracking['ready']['stock_qty'] ?? 0) + $qty;
+                $tracking['ready']['repaired_qty'] = (float)($tracking['ready']['repaired_qty'] ?? 0) + $qty;
+                $tracking['updated_at'] = date('Y-m-d H:i:s');
+                $db->prepare("UPDATE planning_releases SET stage_tracking = ? WHERE id = ?")
+                   ->execute([json_encode($tracking, JSON_UNESCAPED_UNICODE), $plan['release_id']]);
+            }
+        }
+        $cur = $db->prepare("SELECT COALESCE(SUM(quantity), 0) FROM stock WHERE material_type = ? AND material_id = ?");
+        $cur->execute([$isRM ? 'RM' : 'FG', $item['id']]);
+        return ['label' => ($isRM ? 'Child Part ' : 'Finished Good ') . $item['name'], 'warehouse_id' => $wh, 'new_stock' => (float)$cur->fetchColumn()];
     }
 
     /** Return reworked pieces to a production stage of the batch in SKU tracking. */
@@ -625,6 +704,140 @@ class RejectionController {
         if ($minor > 0) $parts[] = "{$minor} pcs to Rework";
         if ($furnace > 0) $parts[] = "{$furnace} pcs to Furnace";
         Response::success(['children' => $created], 'Decision saved: ' . implode(' + ', $parts) . '.');
+    }
+
+    /**
+     * POST /rejections/lots/move
+     * {id, quantity, action: STAGE|RETURN|STOCK|FURNACE|BIN, stage_key, stage_name, scrap_weight_kg, warehouse_id, remarks, operator}
+     * STOCK = repaired pieces are OK: added straight to Ready stock (FG, or Child Part for in-house child-part plans).
+     * Free tracking: send any part of an open lot anywhere. Part quantities split into a child lot.
+     */
+    public static function moveLot(): void {
+        $user = Auth::requireAuth();
+        $db = Database::getConnection();
+        self::ensureTables($db);
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id = (int)($input['id'] ?? 0);
+        $action = strtoupper(trim((string)($input['action'] ?? '')));
+        $qty = round((float)($input['quantity'] ?? 0), 3);
+        $stageKey = trim((string)($input['stage_key'] ?? ''));
+        $stageName = trim((string)($input['stage_name'] ?? '')) ?: $stageKey;
+        $by = trim((string)($input['operator'] ?? '')) ?: ($user['full_name'] ?? 'Supervisor');
+        $remarks = trim((string)($input['remarks'] ?? ''));
+
+        if (!$id) Response::error('Lot id is required.', null, 400);
+        if (!in_array($action, ['STAGE', 'RETURN', 'STOCK', 'FURNACE', 'BIN'], true)) Response::error('Choose where to send the pieces.', null, 400);
+        if (in_array($action, ['STAGE', 'RETURN'], true) && $stageKey === '') Response::error('Choose the production stage.', null, 400);
+        if ($qty <= 0) Response::error('Quantity must be greater than zero.', null, 400);
+
+        $message = '';
+        $movedId = $id;
+        $db->beginTransaction();
+        try {
+            $lot = self::fetchLotForUpdate($db, $id);
+            if ($lot['status'] !== 'OPEN') throw new RuntimeException("Lot {$lot['lot_number']} is already {$lot['status']}.");
+            $lotQty = round((float)$lot['quantity'], 3);
+            if ($qty - $lotQty > 0.0005) throw new InvalidArgumentException("Only {$lotQty} pcs are in this lot.");
+
+            $current = self::decodeLot($lot);
+            $fromName = $current['location_name'] ?: self::BIN_NAME;
+            $now = date('Y-m-d H:i:s');
+            $history = json_decode($lot['history_json'] ?? '[]', true) ?: [];
+
+            // Part quantity: split the moved pieces into a child lot, the rest stay where they are
+            if ($lotQty - $qty > 0.0005) {
+                $childNo = 'RJ-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
+                $remaining = round($lotQty - $qty, 3);
+                $childHistory = $history;
+                $childHistory[] = ['action' => 'SPLIT', 'step_name' => $fromName, 'from' => $fromName, 'to' => $fromName, 'qty' => $qty,
+                                   'at' => $now, 'by' => $by, 'remarks' => "Split {$qty} of {$lotQty} pcs from lot {$lot['lot_number']}"];
+                $db->prepare("
+                    INSERT INTO rejection_lots (
+                        lot_number, parent_lot_number, release_id, batch_no, fg_id, item_name, source_stage_key, source_stage_name,
+                        defect_reason, disposition, quantity, avg_weight, scrap_weight_kg, return_stage_key, return_stage_name,
+                        steps_json, current_step, location_type, location_key, location_name, history_json, status, operator, remarks, created_by
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, '[]', 0, ?, ?, ?, ?, 'OPEN', ?, ?, ?)
+                ")->execute([
+                    $childNo, $lot['lot_number'], $lot['release_id'], $lot['batch_no'], $lot['fg_id'], $lot['item_name'],
+                    $lot['source_stage_key'], $lot['source_stage_name'], $lot['defect_reason'], $lot['disposition'], $qty, $lot['avg_weight'],
+                    $lot['return_stage_key'], $lot['return_stage_name'],
+                    $current['location_type'], $current['location_key'] ?? null, $fromName,
+                    json_encode($childHistory, JSON_UNESCAPED_UNICODE), $by, $lot['remarks'], $user['id'] ?? null,
+                ]);
+                $movedId = (int)$db->lastInsertId();
+                $history[] = ['action' => 'SPLIT_OUT', 'step_name' => $fromName, 'from' => $fromName, 'to' => $fromName, 'qty' => $qty,
+                              'at' => $now, 'by' => $by, 'remarks' => "{$qty} pcs moved out as lot {$childNo}; {$remaining} pcs remain here", 'child' => $childNo];
+                $db->prepare("UPDATE rejection_lots SET quantity = ?, history_json = ? WHERE id = ?")
+                   ->execute([$remaining, json_encode($history, JSON_UNESCAPED_UNICODE), $id]);
+                $lot = self::fetchLotForUpdate($db, $movedId);
+                $history = json_decode($lot['history_json'] ?? '[]', true) ?: [];
+            }
+
+            $entry = ['action' => $action, 'from' => $fromName, 'qty' => $qty, 'at' => $now, 'by' => $by, 'remarks' => $remarks];
+
+            if ($action === 'STAGE') {
+                $entry['to'] = $stageName; $entry['step_name'] = $stageName; $entry['stage_key'] = $stageKey;
+                $history[] = $entry;
+                $db->prepare("UPDATE rejection_lots SET disposition = 'MINOR', location_type = 'STAGE', location_key = ?, location_name = ?,
+                              return_stage_key = ?, return_stage_name = ?, history_json = ? WHERE id = ?")
+                   ->execute([$stageKey, $stageName, $stageKey, $stageName, json_encode($history, JSON_UNESCAPED_UNICODE), $movedId]);
+                $message = "{$qty} pcs sent to {$stageName} for work.";
+            } elseif ($action === 'BIN') {
+                $entry['to'] = self::BIN_NAME; $entry['step_name'] = self::BIN_NAME;
+                $history[] = $entry;
+                $db->prepare("UPDATE rejection_lots SET location_type = 'BIN', location_key = NULL, location_name = ?, history_json = ? WHERE id = ?")
+                   ->execute([self::BIN_NAME, json_encode($history, JSON_UNESCAPED_UNICODE), $movedId]);
+                $message = "{$qty} pcs moved back to the Rejection Bin.";
+            } elseif ($action === 'RETURN') {
+                $lot['return_stage_key'] = $stageKey;
+                $lot['return_stage_name'] = $stageName;
+                $lot['quantity'] = $qty;
+                $joined = self::returnToStage($db, $lot, $by);
+                $entry['to'] = $stageName; $entry['step_name'] = $stageName; $entry['stage_key'] = $stageKey;
+                $history[] = $entry;
+                $db->prepare("UPDATE rejection_lots SET disposition = 'MINOR', status = 'COMPLETED', completed_at = NOW(), location_type = 'RETURNED',
+                              location_key = ?, location_name = ?, return_stage_key = ?, return_stage_name = ?, history_json = ? WHERE id = ?")
+                   ->execute([$stageKey, $stageName, $stageKey, $stageName, json_encode($history, JSON_UNESCAPED_UNICODE), $movedId]);
+                $message = $joined ? "{$qty} pcs returned to production at {$stageName}." : "{$qty} pcs marked as returned to {$stageName}.";
+            } elseif ($action === 'STOCK') {
+                $res = self::addRepairedToStock($db, $lot, $qty, (int)($input['warehouse_id'] ?? 0), $by, $user['id'] ?? null);
+                $entry['to'] = 'Ready stock'; $entry['step_name'] = 'Ready stock'; $entry['stock'] = $res['label'];
+                $history[] = $entry;
+                $db->prepare("UPDATE rejection_lots SET disposition = 'MINOR', status = 'COMPLETED', completed_at = NOW(), warehouse_id = ?,
+                              location_type = 'STOCK', location_key = 'ready', location_name = 'Ready stock', history_json = ? WHERE id = ?")
+                   ->execute([$res['warehouse_id'], json_encode($history, JSON_UNESCAPED_UNICODE), $movedId]);
+                $message = "{$qty} repaired pcs added to {$res['label']} stock (now {$res['new_stock']}).";
+            } else { // FURNACE
+                $kg = isset($input['scrap_weight_kg']) && (float)$input['scrap_weight_kg'] > 0
+                    ? round((float)$input['scrap_weight_kg'], 3)
+                    : round($qty * (float)$lot['avg_weight'], 3);
+                if ($kg <= 0) throw new InvalidArgumentException('Enter the scrap weight (kg).');
+                $warehouseId = InventoryService::getValidWarehouseId((int)($input['warehouse_id'] ?? 0));
+                $scrap = self::furnaceScrapMaterial($db);
+                InventoryService::increaseStock(
+                    'SCRAP', (int)$scrap['id'], $scrap['scrap_code'], $scrap['scrap_name'], $warehouseId, $kg, (int)$scrap['unit_id'],
+                    (float)($scrap['standard_rate'] ?? 0), 'SCRAP_GENERATED', $lot['lot_number'], $lot['batch_no'], $lot['lot_number'], date('Y-m-d'),
+                    "Furnace rejection {$qty} pcs of {$lot['item_name']} (Batch {$lot['batch_no']}, rejected at {$lot['source_stage_name']})",
+                    $user['id'] ?? null
+                );
+                $entry['to'] = 'Furnace'; $entry['step_name'] = 'Furnace'; $entry['scrap_weight_kg'] = $kg;
+                $history[] = $entry;
+                $db->prepare("UPDATE rejection_lots SET disposition = 'FURNACE', status = 'COMPLETED', completed_at = NOW(), scrap_weight_kg = ?,
+                              warehouse_id = ?, location_type = 'FURNACE', location_key = NULL, location_name = 'Furnace', history_json = ? WHERE id = ?")
+                   ->execute([$kg, $warehouseId, json_encode($history, JSON_UNESCAPED_UNICODE), $movedId]);
+                $message = "{$qty} pcs sent to furnace: {$kg} kg booked to scrap stock.";
+            }
+
+            AuditService::log('REJECTION_MOVED', 'PRODUCTION', $lot['lot_number'], null, ['action' => $action, 'qty' => $qty, 'to' => $entry['to'] ?? null]);
+            $db->commit();
+        } catch (Exception $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            Response::error($e->getMessage(), null, 400);
+        }
+
+        $stmt = $db->prepare("SELECT rl.*, w.warehouse_name FROM rejection_lots rl LEFT JOIN warehouses w ON w.id = rl.warehouse_id WHERE rl.id = ?");
+        $stmt->execute([$movedId]);
+        Response::success(self::decodeLot($stmt->fetch()), $message);
     }
 
     /** POST /rejections/lots/cancel {id, remarks} */

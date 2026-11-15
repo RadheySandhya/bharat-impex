@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, ChevronDown, X, Check } from 'lucide-react';
 
 /**
@@ -18,6 +19,7 @@ import { Search, ChevronDown, X, Check } from 'lucide-react';
  * - dropdownClassName: Custom dropdown popover classes
  * - clearable: Boolean (allow clearing selection)
  * - icon: Lucide icon component for the input prefix
+ * - creatable: Boolean (allow a typed value that is not in the list, e.g. a new party name)
  */
 export function SearchableSelect({
   options = [],
@@ -35,7 +37,8 @@ export function SearchableSelect({
   clearable = true,
   icon: IconComponent = null,
   renderOption = null,
-  maxDisplay = 100
+  maxDisplay = 100,
+  creatable = false
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [dropUp, setDropUp] = useState(false);
@@ -45,6 +48,8 @@ export function SearchableSelect({
   const containerRef = useRef(null);
   const searchInputRef = useRef(null);
   const listRef = useRef(null);
+  const menuRef = useRef(null);
+  const [menuPos, setMenuPos] = useState(null);
 
   // Normalize options to standard object structure (supports array or <option> children)
   const normalizedOptions = useMemo(() => {
@@ -105,8 +110,10 @@ export function SearchableSelect({
   // Find currently selected option
   const selectedOption = useMemo(() => {
     if (value === undefined || value === null || value === '') return null;
-    return normalizedOptions.find((opt) => String(opt.value) === String(value)) || null;
-  }, [normalizedOptions, value]);
+    const found = normalizedOptions.find((opt) => String(opt.value) === String(value));
+    if (found) return found;
+    return creatable ? { value, label: String(value) } : null;
+  }, [normalizedOptions, value, creatable]);
 
   // Filter options by search query
   const filteredOptions = useMemo(() => {
@@ -127,8 +134,11 @@ export function SearchableSelect({
         if (matches.length >= maxDisplay) break;
       }
     }
+    if (creatable && !normalizedOptions.some((o) => String(o.label).toLowerCase() === q)) {
+      matches.unshift({ value: searchQuery.trim(), label: `Use "${searchQuery.trim()}"`, sublabel: 'new' });
+    }
     return matches;
-  }, [normalizedOptions, searchQuery, maxDisplay]);
+  }, [normalizedOptions, searchQuery, maxDisplay, creatable]);
 
   // Auto-focus search input when opening & dynamically calculate dropUp position
   useEffect(() => {
@@ -154,10 +164,28 @@ export function SearchableSelect({
     }
   }, [isOpen]);
 
+  const placeMenu = () => {
+    if (!containerRef.current) return;
+    const r = containerRef.current.getBoundingClientRect();
+    const width = Math.min(Math.max(r.width, 320), 460, window.innerWidth - 16);
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+    const up = (window.innerHeight - r.bottom) < 280 && r.top > 180;
+    setDropUp(up);
+    setMenuPos(up ? { left, width, bottom: window.innerHeight - r.top + 6 } : { left, width, top: r.bottom + 6 });
+  };
+  useLayoutEffect(() => {
+    if (!isOpen) return undefined;
+    placeMenu();
+    const onMove = () => placeMenu();
+    window.addEventListener('resize', onMove);
+    window.addEventListener('scroll', onMove, true);
+    return () => { window.removeEventListener('resize', onMove); window.removeEventListener('scroll', onMove, true); };
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Close on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+      if (containerRef.current && !containerRef.current.contains(e.target) && !(menuRef.current && menuRef.current.contains(e.target))) {
         setIsOpen(false);
       }
     };
@@ -290,12 +318,11 @@ export function SearchableSelect({
       </button>
 
       {/* Dropdown Floating Menu */}
-      {isOpen && (
+      {isOpen && menuPos && createPortal(
         <div
-          className={`absolute left-0 ${
-            dropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
-          } bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100 text-slate-800 ring-1 ring-black/10 ${dropdownClassName}`}
-          style={{ minWidth: '320px', maxWidth: '460px' }}
+          ref={menuRef}
+          className={`bi-select-menu bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden text-slate-800 ring-1 ring-black/10 ${dropdownClassName}`}
+          style={{ position: 'fixed', zIndex: 1000, left: menuPos.left, width: menuPos.width, top: menuPos.top, bottom: menuPos.bottom, transformOrigin: dropUp ? 'bottom left' : 'top left' }}
         >
           {/* Search Input Bar */}
           <div className="p-2 border-b border-slate-100 bg-slate-50/80 flex items-center gap-2">
@@ -404,7 +431,8 @@ export function SearchableSelect({
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

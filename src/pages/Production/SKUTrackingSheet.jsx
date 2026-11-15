@@ -26,8 +26,7 @@ import {
   ShieldAlert,
   Sparkles,
   Scale,
-  Boxes
-} from 'lucide-react';
+  Boxes, Zap, CheckSquare } from 'lucide-react';
 import Icon from '../../components/UI/Icon';
 import { DateRangePicker } from '../../components/UI/DateRangePicker';
 import { useDateRange } from '../../context/DateRangeContext';
@@ -38,10 +37,43 @@ import { triggerDownload } from '../../utils/csvTemplates';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
+import { RejectionTrackerModal } from '../../components/UI/RejectionTrackerModal';
 import { MobileStageQueue } from './MobileStageQueue';
 
 // Default full sequence fallback if offline
-const DEFAULT_CONFIGURED_STAGES = [
+// Inline avg-weight entry: empty until the user types the weight (kg per piece)
+function AvgWeightCell({ row, onSave }) {
+  const has = Number(row.avg_weight) > 0;
+  const [editing, setEditing] = React.useState(false);
+  const [val, setVal] = React.useState(has ? String(row.avg_weight) : '');
+  React.useEffect(() => { setVal(has ? String(row.avg_weight) : ''); }, [row.avg_weight]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (has && !editing) {
+    return (
+      <button type="button" onClick={() => setEditing(true)} title="Click to change avg weight (kg per piece)"
+        className="font-mono tabular-nums text-slate-700 hover:text-blue-700 hover:underline cursor-pointer">
+        {Number(row.avg_weight).toFixed(3)}
+      </button>
+    );
+  }
+  const commit = () => {
+    setEditing(false);
+    if (String(val).trim() === '' || Number(val) === Number(row.avg_weight)) return;
+    onSave(row, val);
+  };
+  return (
+    <input
+      type="number" step="0.001" min="0" value={val} autoFocus={editing}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setVal(has ? String(row.avg_weight) : ''); setEditing(false); } }}
+      placeholder="Enter kg"
+      title="Avg weight per piece (kg)"
+      className="w-20 h-7 px-1.5 rounded-md border border-amber-300 bg-amber-50/60 text-right text-[11px] font-mono placeholder:text-amber-700/60"
+    />
+  );
+}
+
+export const DEFAULT_CONFIGURED_STAGES = [
   { id: 1, sequence: 1, key: 'proc_cast', code: 'PROC-CAST', name: '1. Casting', full_name: 'Gravity Die Casting', color: 'amber', bg: 'bg-amber-50', text: 'text-amber-900', border: 'border-amber-200' },
   { id: 2, sequence: 2, key: 'proc_fett', code: 'PROC-FETT', name: '2. Fettling', full_name: 'Fettling & Runner Cutting', color: 'orange', bg: 'bg-orange-50', text: 'text-orange-900', border: 'border-orange-200' },
   { id: 3, sequence: 3, key: 'proc_cnc', code: 'PROC-CNC', name: '3. CNC', full_name: 'CNC Machining & Threading', color: 'blue', bg: 'bg-blue-50', text: 'text-blue-900', border: 'border-blue-200' },
@@ -95,8 +127,17 @@ export function SKUTrackingSheet() {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [newRowModalOpen, setNewRowModalOpen] = useState(false);
   // Phones open the minimal supervisor queue; desktops open the full sheet
-  const [activeTab, setActiveTab] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 768 ? 'mobile_cards' : 'sheet'));
+  const [activeTab, setActiveTab] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 768 ? 'mobile_cards' : 'simple'));
   const { hasPermission, canStage } = useAuth();
+  const [rejTracker, setRejTracker] = useState(null); // { row, stage }
+  const [stagePop, setStagePop] = useState(null); // `${rowId}|${stageKey}` pinned stage details (Simple view)
+  useEffect(() => {
+    if (!stagePop) return undefined;
+    const close = (e) => { if (e.type === 'keydown' ? e.key === 'Escape' : !e.target.closest?.('.stg-box')) setStagePop(null); };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', close); };
+  }, [stagePop]);
 
   // Stage Handoff modal state
   const [handoffModalOpen, setHandoffModalOpen] = useState(false);
@@ -166,7 +207,7 @@ export function SKUTrackingSheet() {
       : (isInProgress ? (nextStage ? `Target: ${nextStage.full_name}` : 'Ready FG Stock') : 'Queued In Route');
 
     const rejectionReason = stgData.rejection_reason || (rejQty > 0 ? 'Blowhole & Surface Porosity' : 'Zero Rejection');
-    const scrapWeight = stgData.scrap_weight || (rejQty * Number(row.avg_weight || 0.35)).toFixed(3);
+    const scrapWeight = stgData.scrap_weight || (rejQty * Number(row.avg_weight || 0)).toFixed(3);
 
     return {
       batchNo: row.batch_no?.startsWith('#') ? row.batch_no : `#${row.batch_no}`,
@@ -275,7 +316,7 @@ export function SKUTrackingSheet() {
       rm_deducted: Boolean(rel.rm_deducted),
       item_name: (rel.product_name || 'UNNAMED PRODUCT').toUpperCase(),
       qty_recd_casting: qty,
-      avg_weight: 0.350,
+      avg_weight: null, // entered by the user
       stages: initialStages,
       ready: { date_form: '', stock_qty: 0, total_rejection: 0, status: 'In Production' }
     };
@@ -352,7 +393,7 @@ export function SKUTrackingSheet() {
             rm_deducted: Boolean(rel.rm_deducted !== undefined ? rel.rm_deducted : existing.rm_deducted),
             item_name: (rel.product_name || existing.item_name).toUpperCase(),
             qty_recd_casting: qty,
-            avg_weight: Number(existing.avg_weight) > 0 ? Number(existing.avg_weight) : 0.35,
+            avg_weight: Number(existing.avg_weight) > 0 ? Number(existing.avg_weight) : null,
             stages: normalizeBatchStages(existing.stages, qty, cDate),
             ready: existing.ready || { date_form: '', stock_qty: 0, total_rejection: 0, status: 'In Production' }
           };
@@ -469,7 +510,7 @@ export function SKUTrackingSheet() {
     cat_no: '',
     item_name: '',
     qty_recd_casting: 100,
-    avg_weight: 0.350
+    avg_weight: ''
   });
 
   // Helper to parse date into timestamp for sorting
@@ -584,7 +625,7 @@ export function SKUTrackingSheet() {
       totalReady += Number(r.ready?.stock_qty || 0);
       const rej = Number(r.ready?.total_rejection || 0);
       totalRejection += rej;
-      totalScrapWeight += rej * Number(r.avg_weight || 0.35);
+      totalScrapWeight += rej * Number(r.avg_weight || 0);
 
       if (isBatchCompleted(r, stages)) {
         cCount++;
@@ -639,6 +680,29 @@ export function SKUTrackingSheet() {
     setHandoffModalOpen(true);
   };
 
+  // Total rejected pieces of a batch (all stages); x avg weight = metal that can go to the furnace
+  const rejectedPcs = (row) => {
+    const fromStages = Object.values(row.stages || {}).reduce((t, st) => t + Number(st?.rejection || 0), 0);
+    return Math.max(fromStages, Number(row.ready?.total_rejection || 0));
+  };
+  // Rejected pieces that can still go to the furnace (repaired ones went back to stock)
+  const scrapPcs = (row) => Math.max(0, rejectedPcs(row) - Number(row.ready?.repaired_qty || 0));
+
+  // Average weight per piece: entered by the user, saved with the batch on the server
+  const saveAvgWeight = (row, kg) => {
+    const val = Number(kg) > 0 ? Number(Number(kg).toFixed(4)) : null;
+    setData((prev) => {
+      const next = prev.map((r) => (r.id === row.id ? { ...r, avg_weight: val } : r));
+      saveBatchesToStorage(next);
+      return next;
+    });
+    if (val && (row.release_id || row.batch_no)) {
+      api.planning.updateStages({ release_id: row.release_id, batch_no: row.batch_no, stages: row.stages, ready: row.ready, avg_weight: val })
+        .then(() => success(`Avg weight ${val} kg saved for #${String(row.batch_no).replace(/^#/, '')}`))
+        .catch((err) => warning(`Weight not saved: ${err.message}`));
+    }
+  };
+
   // Handle stage handoff confirmation
   const handleConfirmHandoff = async ({ rowId, stageKey, stageName, nextStageKey, goodQty, rejQty, minorQty = 0, furnaceQty = 0, rejectionSplits = [], rejReason, disposition, reworkStage, operatorName, remarks, scrapWeightKg, rejPieceWeightKg, warehouseId }) => {
     const targetRow = data.find((item) => item.id === rowId) || handoffRow;
@@ -658,10 +722,12 @@ export function SKUTrackingSheet() {
           remarks: remarks || `Final handoff from ${stageKey} to Ready FG Stock`
         });
 
-        if (res?.data?.new_stock !== undefined) {
-          success(`🎉 Batch #${targetRow.batch_no} sent to Ready FG Stock! Live Finished Goods Stock: ${res.data.new_stock} PCS`);
+        if (res?.data?.item_type === 'RM') {
+          success(res.message || `Batch #${targetRow.batch_no} added to Child Part stock.`);
+        } else if (res?.data?.new_stock !== undefined) {
+          success(`Batch #${targetRow.batch_no} sent to Ready FG Stock! Live Finished Goods Stock: ${res.data.new_stock} PCS`);
         } else {
-          success(`🎉 Batch #${targetRow.batch_no} sent to Ready FG Stock!`);
+          success(`Batch #${targetRow.batch_no} sent to Ready FG Stock!`);
         }
       } catch (apiErr) {
         console.error('Failed to update Finished Goods inventory in DB:', apiErr);
@@ -683,12 +749,12 @@ export function SKUTrackingSheet() {
           source_stage_key: stageKey,
           source_stage_name: stageObj?.full_name || stageName || stageKey,
           defect_reason: rejReason,
-          avg_weight: Number(rejPieceWeightKg) > 0 ? Number(rejPieceWeightKg) : Number(targetRow.avg_weight || 0.35),
+          avg_weight: Number(rejPieceWeightKg) > 0 ? Number(rejPieceWeightKg) : Number(targetRow.avg_weight || 0),
           operator: operatorName,
           remarks,
           splits: rejectionSplits,
         });
-        success(`${rejQty} PCS sent to the Rejection Pipeline. Decide furnace or rework under Rejections.`);
+        success(`${rejQty} PCS moved to the Rejection Bin. Click the red rejection number to track them.`);
       } catch (err) {
         warning(`Rejection counted on the sheet, but the rejection lot could not be created: ${err.message}`);
       }
@@ -861,7 +927,7 @@ export function SKUTrackingSheet() {
 
     const newId = Date.now();
     const qty = Number(newRowForm.qty_recd_casting || 0);
-    const avgW = Number(newRowForm.avg_weight || 0.35);
+    const avgW = Number(newRowForm.avg_weight) > 0 ? Number(newRowForm.avg_weight) : null;
 
     // Initial stage entries for all configured dynamic stages
     const initialStages = {};
@@ -898,7 +964,7 @@ export function SKUTrackingSheet() {
       cat_no: '',
       item_name: '',
       qty_recd_casting: 100,
-      avg_weight: 0.350
+      avg_weight: ''
     });
   };
 
@@ -921,6 +987,7 @@ export function SKUTrackingSheet() {
       ...stageHeaders,
       'Ready Stock Qty',
       'Total Rejection',
+      'Rejected Weight (Kg)',
       'Status'
     ];
 
@@ -940,6 +1007,7 @@ export function SKUTrackingSheet() {
         ...stageCols,
         r.ready?.stock_qty || 0,
         r.ready?.total_rejection || 0,
+        Number(r.avg_weight) > 0 ? (scrapPcs(r) * Number(r.avg_weight)).toFixed(3) : '',
         r.ready?.status || 'In Production'
       ];
     });
@@ -956,6 +1024,178 @@ export function SKUTrackingSheet() {
     if (stg && !canStage(stg)) return false; // stages outside this user's assignment stay hidden
     if (selectedStageFilter === 'ALL') return true;
     return selectedStageFilter === stageKey;
+  };
+
+  // ── Simple view: one card per batch, stages as a single readable strip ──
+  const renderSimpleView = () => {
+    const active = filteredData.filter((r) => !isBatchCompleted(r, stages));
+    const done = filteredData.filter((r) => isBatchCompleted(r, stages));
+    const currentStageOf = (row) => {
+      for (let i = stages.length - 1; i >= 0; i--) {
+        if (Number(row.stages?.[stages[i].key]?.bal || 0) > 0) return stages[i];
+      }
+      return stages[0];
+    };
+    const renderCard = (row) => {
+      const completed = isBatchCompleted(row, stages);
+      const cur = currentStageOf(row);
+      const rej = rejectedPcs(row);
+      const wt = Number(row.avg_weight) || 0;
+      // Batch started on an older process route: its stage keys are not in the current map
+      const known = new Set(stages.map((x) => x.key));
+      const oldKeys = Object.keys(row.stages || {}).filter((k) => !known.has(k) && (Number(row.stages[k]?.prod_qty || 0) > 0 || Number(row.stages[k]?.bal || 0) > 0));
+      const routeChanged = !completed && oldKeys.length > 0 && !stages.some((x) => Number(row.stages?.[x.key]?.bal || 0) > 0);
+      return (
+        <div className={`bg-white border rounded-2xl p-4 ${completed ? 'border-slate-200 opacity-90' : 'border-slate-200 hover:border-blue-300'} transition-colors`}>
+          <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
+            {/* Batch */}
+            <div className="min-w-[210px]">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[13px] font-bold text-[#007AFF]">{row.batch_no?.startsWith('#') ? row.batch_no : `#${row.batch_no}`}</span>
+                {row.rm_deducted ? (
+                  <button type="button" onClick={() => handleOpenKitting(row)} title="Child parts deducted. View kitting."
+                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-pointer">
+                    <Check className="w-3 h-3" /> Kitted
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => handleOpenKitting(row)} title="Do full kitting for this batch"
+                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-300 cursor-pointer">
+                    <Boxes className="w-3 h-3" /> Kitting pending
+                  </button>
+                )}
+              </div>
+              <div className="text-[14px] font-semibold text-slate-900 mt-0.5">{row.item_name}</div>
+              <div className="flex items-center gap-3 text-[11.5px] text-slate-500 mt-1">
+                <span>{row.casting_date}</span>
+                <span><b className="text-slate-800">{row.qty_recd_casting}</b> pcs</span>
+                <span className="flex items-center gap-1">Wt <AvgWeightCell row={row} onSave={saveAvgWeight} /> kg</span>
+              </div>
+            </div>
+
+            {/* Stage strip */}
+            <div className="flex-1 min-w-[320px]">
+              {routeChanged && (
+                <div className="mb-1.5 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
+                  This batch was started on an older process route. The Process Map was changed after it started, so its pieces are recorded under old stages ({oldKeys.length}) and do not show here.
+                </div>
+              )}
+              <div className="flex flex-wrap items-stretch gap-1 pb-1">
+                {stages.map((stg, i) => {
+                  const d = row.stages?.[stg.key] || {};
+                  const bal = Number(d.bal || 0), prod = Number(d.prod_qty || 0), r = Number(d.rejection || 0);
+                  const passed = prod > 0 && bal === 0;
+                  const here = bal > 0;
+                  const pinKey = `${row.id}|${stg.key}`;
+                  const pinned = stagePop === pinKey;
+                  const clean = (v) => String(v || '').split('\\/').join('/'); // stored dates look like 15\/11\/2026
+                  const fields = [
+                    ['Came in', [clean(d.in_date), d.in_time].filter(Boolean).join(' ') || (prod || bal ? clean(d.date) : '—')],
+                    ['Sent out', [clean(d.out_date), d.out_time].filter(Boolean).join(' ') || (passed ? clean(d.date) : here ? 'Still here' : '—')],
+                    ['Produced / done', prod],
+                    ['Rejected', r],
+                    ['At stage now', bal],
+                    ...(r > 0 && d.rejection_reason ? [['Reject reason', clean(d.rejection_reason)]] : []),
+                    ...(d.operator ? [['Operator', clean(d.operator)]] : []),
+                    ...(d.next_stage ? [['Sent to', clean(d.next_stage)]] : []),
+                  ];
+                  return (
+                    <React.Fragment key={stg.key}>
+                      {i > 0 && <div className="self-center text-slate-300 text-xs">›</div>}
+                      <div
+                        className={`stg-box group/stg relative min-w-[104px] rounded-xl border px-2 py-1.5 cursor-pointer select-none ${here ? 'border-[#007AFF] bg-blue-50' : passed ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-200 bg-slate-50/60'} ${pinned ? 'ring-2 ring-[#007AFF]/40' : ''}`}
+                        onClick={() => setStagePop(pinned ? null : pinKey)}
+                      >
+                        <div className={`text-[10.5px] font-semibold truncate ${here ? 'text-[#007AFF]' : passed ? 'text-emerald-700' : 'text-slate-400'}`}>{stg.full_name}</div>
+                        <div className="text-[16px] font-bold tabular-nums leading-tight">
+                          {here ? <span className="text-slate-900">{bal}<span className="text-[10px] font-semibold text-[#007AFF] ml-1">at stage</span></span>
+                            : passed ? <span className="text-emerald-700 text-[13px] flex items-center gap-0.5"><Check className="w-3 h-3" />{prod} done</span>
+                            : <span className="text-slate-300 text-[13px]">—</span>}
+                        </div>
+                        <div className="flex items-center gap-1.5 text-[10px] font-semibold mt-0.5">
+                          <span className="text-slate-500">Done {prod}</span>
+                          <span className={r > 0 ? 'text-rose-600' : 'text-slate-400'}>Rej {r}</span>
+                        </div>
+
+                        {/* details: on hover, or pinned on click */}
+                        <div className={`absolute left-0 top-full pt-1.5 z-30 ${pinned ? 'block' : 'hidden group-hover/stg:block'}`}
+                          onClick={(e) => e.stopPropagation()}>
+                        <div className="w-[230px] bg-white rounded-xl border border-slate-200 shadow-xl p-3 text-left cursor-default">
+                          <div className="text-[12px] font-semibold text-slate-900 mb-1.5">{stg.full_name}</div>
+                          <dl className="space-y-1">
+                            {fields.map(([k, v]) => (
+                              <div key={k} className="flex justify-between gap-3 text-[11.5px]">
+                                <dt className="text-slate-500">{k}</dt>
+                                <dd className={`font-semibold text-right tabular-nums ${k === 'Rejected' && Number(v) > 0 ? 'text-rose-600' : 'text-slate-800'}`}>{v}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                          {(here || r > 0) && (
+                            <div className="flex gap-1.5 mt-2.5">
+                              {here && (
+                                <button type="button" onClick={() => { setStagePop(null); handleOpenHandoff(row, stg.key); }}
+                                  className="flex-1 h-8 rounded-lg bg-[#007AFF] hover:bg-[#0A6CF0] text-white text-[11.5px] font-semibold cursor-pointer">Send next</button>
+                              )}
+                              {r > 0 && (
+                                <button type="button" onClick={() => { setStagePop(null); setRejTracker({ row, stage: stg }); }}
+                                  className="flex-1 h-8 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11.5px] font-semibold cursor-pointer">Track {r} rejected</button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        </div>
+                      </div>
+                    </React.Fragment>
+                  );
+                })}
+                <div className="self-center text-slate-300 text-xs">›</div>
+                <div className={`min-w-[80px] rounded-xl border px-2 py-1.5 ${Number(row.ready?.stock_qty || 0) > 0 ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-slate-50/60'}`}>
+                  <div className="text-[10.5px] font-semibold text-emerald-700">Ready FG</div>
+                  <div className="text-[16px] font-bold tabular-nums text-emerald-700">{row.ready?.stock_qty || 0}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Totals + action */}
+            <div className="flex items-center gap-4 ml-auto">
+              <div className="text-right">
+                <div className="text-[10.5px] text-slate-500">Rejected</div>
+                <div className={`text-[14px] font-bold tabular-nums ${rej ? 'text-rose-600' : 'text-slate-400'}`}>{rej} pcs</div>
+                <div className="text-[10.5px] text-slate-500 tabular-nums">{scrapPcs(row) && wt ? `${(scrapPcs(row) * wt).toFixed(3)} kg` : rej ? (Number(row.ready?.repaired_qty) ? `${row.ready.repaired_qty} repaired` : 'enter wt') : ''}</div>
+              </div>
+              {completed ? (
+                <span className="inline-flex items-center gap-1 h-9 px-3 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-[12px] font-semibold">
+                  <CheckCircle2 className="w-4 h-4" /> Completed
+                </span>
+              ) : (
+                <button type="button" onClick={() => handleOpenHandoff(row, cur.key)}
+                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-xl bg-[#007AFF] hover:bg-[#0A6CF0] text-white text-[12.5px] font-semibold cursor-pointer whitespace-nowrap"
+                  title={`Send from ${cur.full_name} to the next stage`}>
+                  Send Next <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <div className="space-y-3">
+        {active.length === 0 && done.length === 0 && (
+          <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center text-slate-400 text-sm">No batches match. Release a plan from Planning to start a batch.</div>
+        )}
+        {active.map((row) => <React.Fragment key={row.id}>{renderCard(row)}</React.Fragment>)}
+        {done.length > 0 && (
+          <details className="group" open={statusFilter === 'COMPLETED'}>
+            <summary className="list-none cursor-pointer flex items-center gap-2 px-1 py-2 text-[12px] font-semibold text-slate-600">
+              <ChevronRight className="w-4 h-4 transition-transform group-open:rotate-90" />
+              Completed batches ({done.length})
+            </summary>
+            <div className="space-y-3 mt-1">{done.map((row) => <React.Fragment key={row.id}>{renderCard(row)}</React.Fragment>)}</div>
+          </details>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -1018,6 +1258,16 @@ export function SKUTrackingSheet() {
           {/* View toggle for mobile/desktop */}
           <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
             <button
+              onClick={() => setActiveTab('simple')}
+              className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                activeTab === 'simple'
+                  ? 'bg-white text-slate-900 shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Simple
+            </button>
+            <button
               onClick={() => setActiveTab('sheet')}
               className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
                 activeTab === 'sheet'
@@ -1042,7 +1292,7 @@ export function SKUTrackingSheet() {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className={`bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs flex-col lg:flex-row lg:items-center justify-between gap-3 ${activeTab === 'sheet' ? 'flex' : 'hidden'}`}>
+      <div className={`bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs flex-col lg:flex-row lg:items-center justify-between gap-3 ${activeTab !== 'mobile_cards' ? 'flex' : 'hidden'}`}>
         <div className="flex items-center gap-2.5 flex-1 flex-wrap sm:flex-nowrap">
           <div className="relative flex-1 min-w-[200px] max-w-md">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1086,7 +1336,7 @@ export function SKUTrackingSheet() {
             }`}
             title="Show only active work in progress"
           >
-            <span>⚡ Active WIP</span>
+            <Zap className="w-3.5 h-3.5" /><span>Active WIP</span>
             <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
               statusFilter === 'PENDING' ? 'bg-white text-amber-900' : 'bg-amber-100 text-amber-900'
             }`}>
@@ -1104,7 +1354,7 @@ export function SKUTrackingSheet() {
             }`}
             title="Show only completed batches deposited in Ready FG Stock"
           >
-            <span>✅ Converted FG</span>
+            <CheckSquare className="w-3.5 h-3.5" /><span>Converted FG</span>
             <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
               statusFilter === 'COMPLETED' ? 'bg-white text-emerald-900' : 'bg-emerald-100 text-emerald-900'
             }`}>
@@ -1154,7 +1404,8 @@ export function SKUTrackingSheet() {
       </div>
 
       {/* Main Content Area */}
-      {activeTab === 'sheet' ? (
+      {activeTab === 'simple' && renderSimpleView()}
+      {activeTab === 'simple' ? null : activeTab === 'sheet' ? (
         /* DYNAMIC SHEET GRID */
         <div className="bg-white border border-slate-300 rounded-2xl shadow-xs overflow-hidden">
           <div className="overflow-x-auto max-h-[680px]">
@@ -1181,7 +1432,7 @@ export function SKUTrackingSheet() {
                   })}
 
                   {(selectedStageFilter === 'ALL' || selectedStageFilter === 'ready') && (
-                    <th colSpan="3" className="p-2 border-r border-emerald-200 bg-emerald-200/70 text-emerald-950 uppercase tracking-wider text-[10px]">
+                    <th colSpan="4" className="p-2 border-r border-emerald-200 bg-emerald-200/70 text-emerald-950 uppercase tracking-wider text-[10px]">
                       Ready Item (FG)
                     </th>
                   )}
@@ -1215,6 +1466,7 @@ export function SKUTrackingSheet() {
                     <>
                       <th className="p-2 bg-green-100 text-green-900 text-right min-w-[65px]">Stock Qty</th>
                       <th className="p-2 bg-rose-50 text-rose-800 text-right min-w-[65px]">Total Rej</th>
+                      <th className="p-2 bg-rose-50 text-rose-800 text-right min-w-[80px]" title="Total rejected pieces × avg weight = metal that can go to the furnace">Rej Wt (kg)</th>
                       <th className="p-2 bg-slate-100 text-slate-800 text-center min-w-[110px] whitespace-nowrap border-r-2 border-slate-400">Status</th>
                     </>
                   )}
@@ -1332,8 +1584,8 @@ export function SKUTrackingSheet() {
                       <td className="p-2 text-right font-semibold text-slate-900 bg-slate-50/30">
                         {row.qty_recd_casting}
                       </td>
-                      <td className="p-2 text-right text-slate-600 bg-slate-50/30 border-r-2 border-slate-300">
-                        {Number(row.avg_weight || 0.35).toFixed(3)}
+                      <td className="p-1.5 text-right text-slate-600 bg-slate-50/30 border-r-2 border-slate-300">
+                        <AvgWeightCell row={row} onSave={saveAvgWeight} />
                       </td>
 
                       {/* Dynamic Stage Cells */}
@@ -1354,9 +1606,9 @@ export function SKUTrackingSheet() {
                               {prodQty}
                             </td>
                             <td
-                              onClick={() => handleOpenHandoff(row, stg.key)}
-                              className={`p-2 text-right hover:bg-rose-50 cursor-pointer select-none transition-colors ${rejQty > 0 ? 'bg-rose-100 text-rose-800 font-bold' : 'text-slate-400'}`}
-                              title={`Click to send ${stg.full_name} to next stage`}
+                              onClick={() => (rejQty > 0 ? setRejTracker({ row, stage: stg }) : handleOpenHandoff(row, stg.key))}
+                              className={`p-2 text-right hover:bg-rose-50 cursor-pointer select-none transition-colors ${rejQty > 0 ? 'bg-rose-100 text-rose-800 font-bold underline decoration-dotted underline-offset-2' : 'text-slate-400'}`}
+                              title={rejQty > 0 ? `Track the ${rejQty} rejected pcs from ${stg.full_name}` : `Click to send ${stg.full_name} to next stage`}
                             >
                               {rejQty}
                             </td>
@@ -1379,6 +1631,16 @@ export function SKUTrackingSheet() {
                           <td className={`p-2 text-right font-bold ${(row.ready?.total_rejection || 0) > 0 ? 'bg-rose-100 text-rose-700' : 'text-slate-600'}`}>
                             {row.ready?.total_rejection || 0}
                           </td>
+                          {(() => {
+                            const rej = scrapPcs(row);
+                            const wt = Number(row.avg_weight) || 0;
+                            return (
+                              <td className={`p-2 text-right font-mono tabular-nums ${rej > 0 ? 'bg-rose-50 text-rose-800 font-bold' : 'text-slate-400'}`}
+                                title={rej > 0 ? (wt > 0 ? `${rej} pcs × ${wt} kg = ${(rej * wt).toFixed(3)} kg rejected material` : 'Enter AVG WT to see the rejected weight') : ''}>
+                                {rej > 0 ? (wt > 0 ? (rej * wt).toFixed(3) : '—') : 0}
+                              </td>
+                            );
+                          })()}
                           <td className="p-2 text-center border-r-2 border-slate-300 whitespace-nowrap">
                             <span className="inline-block whitespace-nowrap px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
                               {row.ready?.status || 'In Production'}
@@ -1488,7 +1750,8 @@ export function SKUTrackingSheet() {
                   type="number"
                   step="0.001"
                   min="0"
-                  value={editForm.avg_weight ?? 0.35}
+                  value={editForm.avg_weight ?? ''}
+                  placeholder="kg per piece"
                   onChange={(e) => setEditForm({ ...editForm, avg_weight: e.target.value })}
                   className="w-full p-1.5 rounded-lg border border-slate-300 bg-white text-slate-900 font-bold"
                 />
@@ -1707,6 +1970,16 @@ export function SKUTrackingSheet() {
 
 
       {/* STAGE HANDOFF MODAL WITH DYNAMIC FLOW & REJECTION LOGGING */}
+      <RejectionTrackerModal
+        isOpen={!!rejTracker}
+        onClose={() => setRejTracker(null)}
+        batchNo={rejTracker ? String(rejTracker.row.batch_no || '').replace(/^#/, '') : ''}
+        sourceStageKey={rejTracker?.stage.key}
+        sourceStageName={rejTracker?.stage.full_name}
+        itemName={rejTracker?.row.item_name}
+        stages={stages.map((s) => ({ key: s.key, name: s.full_name }))}
+        onChanged={() => loadSKUData(stages)}
+      />
       <StageHandoffModal
         isOpen={handoffModalOpen}
         onClose={() => setHandoffModalOpen(false)}

@@ -287,8 +287,15 @@ class ProcessController {
                 }
 
                 if ($pId > 0) {
+                    // An id that is not in the table (e.g. a stale/template id) must be inserted, not silently skipped
+                    $chk = $db->prepare("SELECT COUNT(*) FROM processes WHERE id = ?");
+                    $chk->execute([$pId]);
+                    if (!(int)$chk->fetchColumn()) $pId = 0;
+                }
+
+                if ($pId > 0) {
                     $stmt = $db->prepare("
-                        UPDATE processes 
+                        UPDATE processes
                         SET process_name = ?, process_code = ?, description = ?, standard_duration_minutes = ?, sequence = ?, active = 1, updated_at = NOW()
                         WHERE id = ?
                     ");

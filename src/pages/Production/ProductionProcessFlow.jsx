@@ -21,7 +21,6 @@ import {
 import Icon from '../../components/UI/Icon';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
-import { RejectionProcessFlow } from './RejectionProcessFlow';
 import { useAuth } from '../../context/AuthContext';
 
 // Default initial production pipeline stages
@@ -84,8 +83,14 @@ const INITIAL_EDGES = [
   { id: 'edge-5-6', from: 5, to: 6 },
 ];
 
-const CARD_WIDTH = 230;
-const CARD_HEIGHT = 105;
+// Template stages are not in the DB yet: give them non-numeric ids so they are
+// treated as new (inserted on save, removed locally on delete).
+const templateNodes = () => INITIAL_STAGES.map((s) => ({ ...s, id: `tpl_${s.id}` }));
+const templateEdges = () =>
+  INITIAL_EDGES.map((e) => ({ id: `edge-tpl_${e.from}-tpl_${e.to}`, from: `tpl_${e.from}`, to: `tpl_${e.to}` }));
+
+const CARD_WIDTH = 220;
+const CARD_HEIGHT = 96;
 
 function ProductionRouteFlow() {
   const [nodes, setNodes] = useState([]);
@@ -145,15 +150,19 @@ function ProductionRouteFlow() {
 
         setNodes(loadedNodes);
         setEdges(loadedEdges);
+        setIsDirty(false);
       } else {
-        setNodes(INITIAL_STAGES);
-        setEdges(INITIAL_EDGES);
+        // Nothing saved in the database yet: show the template as UNSAVED stages
+        // (string ids) so rename/delete work locally and "Save" inserts them.
+        setNodes(templateNodes());
+        setEdges(templateEdges());
+        setIsDirty(true);
       }
-      setIsDirty(false);
     } catch (err) {
       error('Failed to load processes: ' + err.message);
-      setNodes(INITIAL_STAGES);
-      setEdges(INITIAL_EDGES);
+      setNodes(templateNodes());
+      setEdges(templateEdges());
+      setIsDirty(true);
     } finally {
       setLoading(false);
     }
@@ -232,7 +241,7 @@ function ProductionRouteFlow() {
 
     const fromNode = nodes.find((n) => n.id === connectingFrom);
     const toNode = nodes.find((n) => n.id === targetNodeId);
-    success(`Connected: "${fromNode?.process_name}" ➔ "${toNode?.process_name}"`);
+    success(`Connected: "${fromNode?.process_name}" → "${toNode?.process_name}"`);
   };
 
   // Delete Edge
@@ -389,11 +398,8 @@ function ProductionRouteFlow() {
 
       success(`Process stage "${targetName}" deleted successfully.`);
       setNodeToDelete(null);
-
-      // Reload fresh synchronized pipeline sequence from database
-      if (typeof targetId === 'number') {
-        await loadProcesses();
-      }
+      // Keep the canvas as-is (no reload) so other unsaved renames/moves are not lost.
+      if (typeof targetId !== 'number') setIsDirty(true);
     } catch (err) {
       error('Failed to delete process stage: ' + (err.message || err));
     } finally {
@@ -519,6 +525,8 @@ function ProductionRouteFlow() {
     }
   };
 
+  const orderedNodes = useMemo(() => getOrderedPipeline(nodes, edges), [nodes, edges]);
+
   // Total lead time
   const totalDuration = useMemo(() => {
     return nodes.reduce((sum, n) => sum + (parseInt(n.duration || 0, 10)), 0);
@@ -526,142 +534,81 @@ function ProductionRouteFlow() {
 
   return (
     <div className="space-y-4">
-      {/* Top Header Card */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs">
-        <div>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-blue-700 flex items-center justify-center text-white shadow-xs">
-              <Workflow className="w-5 h-5" />
+      {/* Header (same layout as the Rejection Process Map) */}
+      <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white bg-blue-600 shrink-0">
+            <Workflow className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-base font-black text-slate-900">Production Process Map</h2>
+              {isDirty && (
+                <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full border border-amber-300">Unsaved</span>
+              )}
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-lg font-black text-slate-900 tracking-tight">
-                  Production Process Flow & Dot Connect Playground
-                </h1>
-                {isDirty && (
-                  <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full border border-amber-300 animate-pulse">
-                    Unsaved Layout
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">
-                Drag cards freely anywhere on canvas. Click/drag dots (●) from one stage to another to connect process lines!
-              </p>
-            </div>
+            <p className="text-xs text-slate-500 font-medium">
+              Draw the stages every SKU batch passes through. Click a step's right dot, then the next step's left dot to connect.
+            </p>
           </div>
         </div>
 
-        {/* Action Controls */}
-        <div className="flex items-center gap-3 flex-wrap w-full md:w-auto justify-end">
-
-          <button
-            type="button"
-            onClick={handleAddNode}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold border border-slate-300 shadow-xs cursor-pointer transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5 text-indigo-600" />
-            <span>+ Add Stage</span>
+        <div className="flex items-center gap-2 flex-wrap xl:flex-nowrap shrink-0">
+          <button type="button" onClick={handleAddNode} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold border border-slate-300 cursor-pointer">
+            <Plus className="w-3.5 h-3.5" /> Add Step
           </button>
-
-          {nodes.length > 1 && (
-            <button
-              type="button"
-              onClick={() => setNodeToDelete(nodes[nodes.length - 1])}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-rose-50 text-rose-600 hover:text-rose-700 text-xs font-semibold border border-rose-200 shadow-xs cursor-pointer transition-colors"
-              title="Select and delete a process stage"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Delete Stage</span>
-            </button>
-          )}
-
+          <button type="button" onClick={handleAutoLayout} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold border border-slate-300 cursor-pointer">
+            <Sparkles className="w-3.5 h-3.5 text-amber-500" /> Auto Layout
+          </button>
+          <button type="button" onClick={loadProcesses} title="Reload saved route" className="p-2 rounded-xl bg-white hover:bg-slate-50 text-slate-600 border border-slate-300 cursor-pointer">
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
           <button
             type="button"
             onClick={handleSaveFlow}
-            disabled={saving || !canEditFlow}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-xs transition-all cursor-pointer ${
-              isDirty
-                ? 'bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-500/20 shadow-md'
-                : 'bg-slate-900 hover:bg-slate-800'
-            }`}
+            disabled={saving || loading || !canEditFlow}
+            title={canEditFlow ? 'Save route' : 'Your role can view but not edit process maps'}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-extrabold text-white cursor-pointer disabled:opacity-60 ${isDirty ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-900 hover:bg-slate-800'}`}
           >
-            <Save className={`w-3.5 h-3.5 ${saving ? 'animate-spin' : ''}`} />
-            <span>{saving ? 'Saving...' : 'Save Process Route'}</span>
+            <Save className="w-3.5 h-3.5" /> {saving ? 'Saving...' : 'Save Route'}
           </button>
         </div>
       </div>
 
-      {/* Stats Ribbon */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs">
-        <div className="flex items-center gap-3 px-3 py-1">
-          <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600">
-            <Layers className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="text-[11px] font-bold text-slate-500 uppercase">Process Stages</div>
-            <div className="text-sm font-extrabold text-slate-900">{nodes.length} Stages</div>
-          </div>
+      {/* Flow summary + ordered path (same card as the rejection map's route card) */}
+      <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs space-y-2">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px]">
+          <span className="font-bold text-slate-500 uppercase">Route summary</span>
+          <span className="text-slate-600"><b className="text-slate-900">{nodes.length}</b> stages</span>
+          <span className="text-slate-600"><b className="text-slate-900">{edges.length}</b> connections</span>
         </div>
-
-        <div className="flex items-center gap-3 px-3 py-1">
-          <div className="w-8 h-8 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
-            <Zap className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="text-[11px] font-bold text-slate-500 uppercase">Active Links</div>
-            <div className="text-sm font-extrabold text-slate-900">{edges.length} Connections</div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 px-3 py-1">
-          <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
-            <Clock className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="text-[11px] font-bold text-slate-500 uppercase">Total Cycle Time</div>
-            <div className="text-sm font-extrabold text-slate-900">{totalDuration} mins ({(totalDuration / 60).toFixed(1)} hrs)</div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 px-3 py-1">
-          <div className="w-8 h-8 rounded-lg bg-purple-50 border border-purple-200 flex items-center justify-center text-purple-600">
-            <Flag className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="text-[11px] font-bold text-slate-500 uppercase">Final Output</div>
-            <div className="text-sm font-extrabold text-purple-800 truncate max-w-[140px]">
-              {nodes[nodes.length - 1]?.process_name || 'Packaging'}
-            </div>
-          </div>
+        <div className="flex items-center gap-1 flex-wrap text-[11px]">
+          <span className="font-bold text-slate-500 mr-1">Batch path:</span>
+          <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 font-bold">New SKU batch</span>
+          {orderedNodes.map((n, i) => (
+            <React.Fragment key={n.id}>
+              <ArrowRight className="w-3 h-3 text-slate-400" />
+              <span className="px-2 py-0.5 rounded-md font-semibold bg-blue-50 text-blue-800">{i + 1}. {n.process_name}</span>
+            </React.Fragment>
+          ))}
+          <ArrowRight className="w-3 h-3 text-slate-400" />
+          <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold">Ready FG</span>
         </div>
       </div>
 
       {/* INTERACTIVE WORKFLOW PLAYGROUND CANVAS */}
       <div
         ref={canvasRef}
-        className="relative bg-slate-50 border-2 border-slate-300 rounded-3xl shadow-inner overflow-hidden select-none"
+        className="pm-canvas relative overflow-hidden select-none"
         style={{
-          height: '660px',
-          backgroundImage: 'radial-gradient(#94a3b8 1.4px, transparent 1.4px)',
-          backgroundSize: '24px 24px',
+          '--pm-accent': '#007AFF',
+          height: '560px',
           cursor: isPanning ? 'grabbing' : connectingFrom ? 'crosshair' : 'default',
         }}
         onMouseDown={handleCanvasMouseDown}
         onMouseMove={handleCanvasMouseMove}
         onMouseUp={handleCanvasMouseUp}
       >
-        {/* Help Hint Banner */}
-        <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-200 shadow-xs z-30 flex items-center gap-2 text-xs font-semibold text-slate-600 pointer-events-none">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-          <span>
-            {connectingFrom ? (
-              <strong className="text-blue-700">Now click on the Left Dot (●) of the target stage to connect!</strong>
-            ) : (
-              'Drag cards anywhere • Click the Right Dot (●) on any stage to draw a connecting line'
-            )}
-          </span>
-        </div>
-
         {/* Transformed Stage / Canvas Wrapper */}
         <div
           className="absolute inset-0 origin-top-left"
@@ -677,14 +624,9 @@ function ProductionRouteFlow() {
             style={{ pointerEvents: 'none' }}
           >
             <defs>
-              <linearGradient id="edge-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#3b82f6" />
-                <stop offset="100%" stopColor="#4f46e5" />
-              </linearGradient>
-              <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="2" result="blur" />
-                <feComposite in="SourceGraphic" in2="blur" operator="over" />
-              </filter>
+              <marker id="prod-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+                <path d="M1,1 L9,5 L1,9 z" fill="#007AFF" />
+              </marker>
             </defs>
 
             {/* Permanent Connected Edges */}
@@ -694,11 +636,11 @@ function ProductionRouteFlow() {
               if (!fromNode || !toNode) return null;
 
               // Output port coords (Right side of fromNode)
-              const x1 = fromNode.x + CARD_WIDTH;
+              const x1 = fromNode.x + CARD_WIDTH + 11;
               const y1 = fromNode.y + CARD_HEIGHT / 2;
 
               // Input port coords (Left side of toNode)
-              const x2 = toNode.x;
+              const x2 = toNode.x - 13;
               const y2 = toNode.y + CARD_HEIGHT / 2;
 
               // Control points for smooth bezier curve
@@ -708,26 +650,8 @@ function ProductionRouteFlow() {
               const midY = (y1 + y2) / 2;
 
               return (
-                <g key={edge.id} className="group/edge">
-                  {/* Outer glow stroke on hover */}
-                  <path
-                    d={pathD}
-                    stroke="#818cf8"
-                    strokeWidth="8"
-                    fill="none"
-                    opacity="0.25"
-                  />
-                  {/* Main Bezier Line */}
-                  <path
-                    d={pathD}
-                    stroke="url(#edge-gradient)"
-                    strokeWidth="3.5"
-                    fill="none"
-                    strokeDasharray="6 3"
-                    className="animate-pulse"
-                  />
-                  {/* Animated traveling dot */}
-                  <circle cx={midX} cy={midY} r="4" fill="#3b82f6" filter="url(#glow)" />
+                <g key={edge.id}>
+                  <path d={pathD} stroke="#007AFF" strokeWidth="2.5" strokeLinecap="round" fill="none" opacity="0.9" markerEnd="url(#prod-arrow)" />
 
                   {/* Disconnect / Delete Edge Button on Midpoint (clickable) */}
                   <g
@@ -735,16 +659,9 @@ function ProductionRouteFlow() {
                     style={{ pointerEvents: 'auto', cursor: 'pointer' }}
                     onClick={() => handleDeleteEdge(edge.id)}
                   >
-                    <circle r="10" fill="#ffffff" stroke="#e11d48" strokeWidth="1.5" className="shadow-xs hover:scale-125 transition-transform" />
-                    <text
-                      textAnchor="middle"
-                      dy="3.5"
-                      fontSize="10"
-                      fontWeight="bold"
-                      fill="#e11d48"
-                    >
-                      ✕
-                    </text>
+                    <title>Remove connection</title>
+                    <circle r="9" fill="#fff" stroke="rgba(60,60,67,0.25)" strokeWidth="1" />
+                    <path d="M -3.5 -3.5 L 3.5 3.5 M 3.5 -3.5 L -3.5 3.5" stroke="#FF3B30" strokeWidth="1.8" strokeLinecap="round" />
                   </g>
                 </g>
               );
@@ -754,7 +671,7 @@ function ProductionRouteFlow() {
             {connectingFrom && (() => {
               const fromNode = nodes.find((n) => n.id === connectingFrom);
               if (!fromNode) return null;
-              const x1 = fromNode.x + CARD_WIDTH;
+              const x1 = fromNode.x + CARD_WIDTH + 11;
               const y1 = fromNode.y + CARD_HEIGHT / 2;
               const x2 = mousePos.x;
               const y2 = mousePos.y;
@@ -765,13 +682,11 @@ function ProductionRouteFlow() {
                 <g>
                   <path
                     d={livePath}
-                    stroke="#2563eb"
-                    strokeWidth="3.5"
-                    strokeDasharray="4 4"
+                    stroke="#007AFF"
+                    strokeWidth="2.5"
+                    strokeDasharray="5 4"
                     fill="none"
-                    className="animate-pulse"
                   />
-                  <circle cx={x2} cy={y2} r="5" fill="#2563eb" />
                 </g>
               );
             })()}
@@ -785,62 +700,38 @@ function ProductionRouteFlow() {
             return (
               <div
                 key={node.id}
-                className={`absolute bg-white rounded-2xl border-2 transition-shadow select-none ${
-                  isDragging
-                    ? 'border-indigo-600 shadow-2xl scale-105 z-40'
-                    : 'border-blue-500/80 shadow-md hover:shadow-xl hover:border-blue-600 z-20'
-                }`}
+                className={`pm-card absolute select-none ${isDragging ? 'is-dragging z-40' : 'z-20'}`}
                 style={{
                   left: `${node.x}px`,
                   top: `${node.y}px`,
                   width: `${CARD_WIDTH}px`,
                   height: `${CARD_HEIGHT}px`,
-                  boxShadow: isDragging
-                    ? '0 20px 30px -10px rgba(79, 70, 229, 0.3)'
-                    : '0 8px 20px -6px rgba(59, 130, 246, 0.15)',
                   cursor: isDragging ? 'grabbing' : 'grab',
                 }}
                 onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
               >
-                {/* LEFT PORT: INPUT CONNECTOR DOT (●) */}
                 <div
-                  className={`port-dot absolute -left-3.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white border-2 border-blue-600 shadow-md flex items-center justify-center z-30 transition-transform ${
-                    connectingFrom && connectingFrom !== node.id
-                      ? 'ring-4 ring-emerald-400 bg-emerald-50 scale-125 cursor-pointer animate-pulse'
-                      : 'hover:scale-125 cursor-pointer'
-                  }`}
+                  className={`pm-port in port-dot ${connectingFrom && connectingFrom !== node.id ? 'target' : ''}`}
                   onClick={(e) => handleEndConnection(e, node.id)}
-                  title="Drop connection here (Input Port)"
-                >
-                  <div className="w-2.5 h-2.5 rounded-full bg-blue-600" />
-                </div>
-
-                {/* RIGHT PORT: OUTPUT CONNECTOR DOT (●) */}
+                  title="Connect here (input)"
+                />
                 <div
-                  className={`port-dot absolute -right-3.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white border-2 border-indigo-600 shadow-md flex items-center justify-center z-30 transition-transform ${
-                    isConnectingThis
-                      ? 'ring-4 ring-blue-500 bg-blue-100 scale-125'
-                      : 'hover:scale-125 cursor-pointer'
-                  }`}
+                  className={`pm-port out port-dot ${isConnectingThis ? 'active' : ''}`}
                   onClick={(e) => handleStartConnection(e, node.id)}
-                  title="Click to start connection line to next stage (Output Port)"
-                >
-                  <div className="w-2.5 h-2.5 rounded-full bg-indigo-600" />
-                </div>
+                  title="Click, then click another stage's left dot to connect (output)"
+                />
 
                 {/* CARD CONTENT — COMPACT & CLEAN */}
-                <div className="p-3 h-full flex flex-col justify-between">
+                <div className="p-2.5 h-full flex flex-col gap-1">
                   {/* Top: Step Index & Title & Delete */}
                   <div className="flex items-center justify-between gap-1">
                     <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                      <span className="text-[10px] font-extrabold font-mono px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 shrink-0">
-                        #{idx + 1}
-                      </span>
+                      <span className="pm-chip">#{idx + 1}</span>
                       <input
                         type="text"
                         value={node.process_name}
                         onChange={(e) => handleUpdateNode(node.id, 'process_name', e.target.value)}
-                        className="font-extrabold text-xs text-slate-900 bg-transparent hover:bg-slate-50 focus:bg-white px-1 py-0.5 rounded border border-transparent hover:border-slate-300 focus:border-blue-500 focus:outline-none w-full truncate"
+                        className="pm-name truncate"
                         title="Click to rename process"
                       />
                     </div>
@@ -851,37 +742,23 @@ function ProductionRouteFlow() {
                         e.stopPropagation();
                         handleDeleteNode(node.id);
                       }}
-                      className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
+                      className="pm-del"
                       title="Delete this process stage"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
 
-                  {/* Middle / Bottom: Code, Duration, Connect status */}
-                  <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-100 text-[11px] text-slate-600">
-                    <div className="flex items-center gap-1 font-semibold">
-                      <Clock className="w-3 h-3 text-slate-400" />
-                      <input
-                        type="number"
-                        value={node.duration}
-                        onChange={(e) => handleUpdateNode(node.id, 'duration', e.target.value)}
-                        className="w-9 text-center font-mono font-bold bg-slate-50 hover:bg-white border border-slate-200 rounded px-1 py-0.5 text-[11px]"
-                      />
-                      <span>min</span>
-                    </div>
-
-                    <span className="font-mono text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
-                      {node.process_code}
-                    </span>
+                  {/* Middle: process code */}
+                  <div className="flex items-center text-[11px] text-slate-600">
+                    <span className="pm-chip">{node.process_code}</span>
                   </div>
 
-                  {/* Status Indicator */}
-                  <div className="flex items-center justify-between text-[9px] font-bold text-slate-400">
-                    <span className="text-blue-600 hover:underline cursor-pointer" onClick={(e) => handleStartConnection(e, node.id)}>
-                      {isConnectingThis ? 'Connecting...' : '● Draw Line ➔'}
+                  <div className="pm-foot mt-auto">
+                    <span>{idx === nodes.length - 1 ? 'Final stage' : 'Drag to move'}</span>
+                    <span className="pm-connect" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => handleStartConnection(e, node.id)}>
+                      {isConnectingThis ? 'Connecting…' : 'Connect →'}
                     </span>
-                    <span>Hold to Drag ✋</span>
                   </div>
                 </div>
               </div>
@@ -889,80 +766,6 @@ function ProductionRouteFlow() {
           })}
         </div>
 
-        {/* BOTTOM FLOATING TOOLBAR */}
-        <div className="absolute bottom-5 left-6 bg-white/95 backdrop-blur-md border border-slate-300 rounded-2xl shadow-xl p-1.5 flex items-center gap-1 z-30 select-none">
-          <button
-            type="button"
-            onClick={() => handleZoom(-0.15)}
-            className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-700 font-bold text-sm cursor-pointer"
-            title="Zoom Out"
-          >
-            -
-          </button>
-          <button
-            type="button"
-            onClick={() => handleZoom(0.15)}
-            className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-700 font-bold text-sm cursor-pointer"
-            title="Zoom In"
-          >
-            +
-          </button>
-          <button
-            type="button"
-            onClick={handleResetView}
-            className="px-2.5 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-700 cursor-pointer"
-            title="Reset Zoom & Pan"
-          >
-            {Math.round(zoom * 100)}%
-          </button>
-
-          <div className="w-px h-5 bg-slate-200 mx-1" />
-
-          {/* Auto Layout */}
-          <button
-            type="button"
-            onClick={handleAutoLayout}
-            className="flex items-center gap-1.5 px-3 h-8 rounded-xl hover:bg-slate-100 text-xs font-semibold text-slate-700 cursor-pointer"
-            title="Align stages neatly from left to right"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-            <span>Auto Layout</span>
-          </button>
-
-          {/* Reset View */}
-          <button
-            type="button"
-            onClick={handleResetView}
-            className="flex items-center gap-1.5 px-3 h-8 rounded-xl hover:bg-slate-100 text-xs font-semibold text-slate-700 cursor-pointer"
-            title="Fit canvas flow to screen"
-          >
-            <Maximize2 className="w-3.5 h-3.5 text-slate-500" />
-            <span>Fit Flow</span>
-          </button>
-
-          <div className="w-px h-5 bg-slate-200 mx-1" />
-
-          {/* Add Step */}
-          <button
-            type="button"
-            onClick={handleAddNode}
-            className="flex items-center gap-1 px-3 h-8 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>+ Add Step</span>
-          </button>
-
-          {/* Save Flow */}
-          <button
-            type="button"
-            onClick={handleSaveFlow}
-            disabled={saving || !canEditFlow}
-            className="flex items-center gap-1.5 px-3.5 h-8 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer ml-1 shadow-xs"
-          >
-            <Save className="w-3.5 h-3.5" />
-            <span>{saving ? 'Saving...' : 'Save Flow'}</span>
-          </button>
-        </div>
       </div>
 
       {/* DELETE STAGE CONFIRMATION MODAL */}
@@ -997,9 +800,6 @@ function ProductionRouteFlow() {
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-mono">
                   {nodeToDelete.process_code || 'PROCESS STAGE'}
-                </span>
-                <span className="text-[11px] font-semibold text-slate-500">
-                  Duration: {nodeToDelete.duration || 30} mins
                 </span>
               </div>
               <div className="text-sm font-bold text-slate-900">
@@ -1061,43 +861,9 @@ function ProductionRouteFlow() {
     </div>
   );
 }
-// Production Process page: production route map + rejection process map
+// Production Process page: the production route map (rejections have no fixed route; they are tracked freely)
 export function ProductionProcessFlow() {
-  const [mode, setMode] = useState(() => {
-    try { return localStorage.getItem('bharat_process_map_mode') || 'production'; } catch (e) { return 'production'; }
-  });
-  const changeMode = (m) => {
-    setMode(m);
-    try { localStorage.setItem('bharat_process_map_mode', m); } catch (e) {}
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-1 bg-slate-100 p-1.5 rounded-2xl border border-slate-200 w-fit">
-        <button
-          type="button"
-          onClick={() => changeMode('production')}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer ${
-            mode === 'production' ? 'bg-white text-indigo-700 shadow-xs border border-slate-200' : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Workflow className="w-3.5 h-3.5" />
-          <span>Production Process</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => changeMode('rejection')}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer ${
-            mode === 'rejection' ? 'bg-white text-rose-700 shadow-xs border border-slate-200' : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>Rejection Process</span>
-        </button>
-      </div>
-      {mode === 'production' ? <ProductionRouteFlow /> : <RejectionProcessFlow />}
-    </div>
-  );
+  return <ProductionRouteFlow />;
 }
 
 export default ProductionProcessFlow;

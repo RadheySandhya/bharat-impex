@@ -76,6 +76,8 @@ export function PartyImportModal({ isOpen, onClose, onImported }) {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: 'greedy',
+      // Excel adds a BOM / stray spaces to the first header: normalise every header
+      transformHeader: (h) => String(h || '').replace(/^﻿/, '').replace(/\s+/g, ' ').trim(),
       complete: async (res) => {
         const mapped = mapRows(res.data || []);
         if (!mapped.length) {

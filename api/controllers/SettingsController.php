@@ -15,7 +15,8 @@ class SettingsController {
         $categories = $db->query("SELECT * FROM categories WHERE active = 1 ORDER BY category_name ASC")->fetchAll();
         $units = $db->query("SELECT * FROM units WHERE active = 1 ORDER BY id ASC")->fetchAll();
         $warehouses = $db->query("SELECT * FROM warehouses WHERE active = 1 ORDER BY id ASC")->fetchAll();
-        $reasons = $db->query("SELECT * FROM rejection_reasons WHERE active = 1 ORDER BY category ASC, reason_name ASC")->fetchAll();
+        self::seedRejectionReasons($db);
+        $reasons = $db->query("SELECT * FROM rejection_reasons WHERE active = 1 ORDER BY id ASC")->fetchAll();
         $scrapMaterials = $db->query("SELECT sm.*, u.unit_code FROM scrap_materials sm JOIN units u ON sm.unit_id = u.id WHERE sm.active = 1")->fetchAll();
         $company = $db->query("SELECT * FROM company_settings WHERE id = 1")->fetch();
         $processes = $db->query("SELECT * FROM processes WHERE active = 1 ORDER BY sequence ASC, id ASC")->fetchAll();
@@ -52,20 +53,44 @@ class SettingsController {
             Response::error('Category name is required.', null, 400);
         }
 
-        if (empty($code)) {
-            $code = 'CAT-' . strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $name), 0, 8));
+        if (!in_array($type, ['RM', 'FG', 'BOTH'], true)) $type = 'BOTH';
+        $db = Database::getConnection();
+
+        if (!$id) {
+            // Same name already there (any type): reuse it instead of creating a duplicate
+            $ex = $db->prepare("SELECT * FROM categories WHERE LOWER(category_name) = LOWER(?) LIMIT 1");
+            $ex->execute([$name]);
+            if ($row = $ex->fetch()) {
+                if ($row['category_type'] !== 'BOTH' && $row['category_type'] !== $type) {
+                    $db->prepare("UPDATE categories SET category_type = 'BOTH', active = 1 WHERE id = ?")->execute([$row['id']]);
+                    $row['category_type'] = 'BOTH';
+                }
+                Response::success($row, 'Category already exists.');
+            }
         }
 
-        $db = Database::getConnection();
+        if (empty($code)) {
+            $base = 'CAT-' . strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $name), 0, 8));
+            $code = $base;
+            $chk = $db->prepare("SELECT COUNT(*) FROM categories WHERE category_code = ?");
+            for ($n = 2; ; $n++) { // codes are UNIQUE: add -2, -3 ... when the short name repeats
+                $chk->execute([$code]);
+                if (!(int)$chk->fetchColumn()) break;
+                $code = $base . '-' . $n;
+            }
+        }
+
         if ($id) {
             $db->prepare("UPDATE categories SET category_name = ?, category_type = ?, description = ?, updated_at = NOW() WHERE id = ?")
                ->execute([$name, $type, $desc, $id]);
         } else {
             $db->prepare("INSERT INTO categories (category_name, category_code, category_type, description, active, created_at) VALUES (?, ?, ?, ?, 1, NOW())")
                ->execute([$name, $code, $type, $desc]);
+            $id = (int)$db->lastInsertId();
         }
-
-        Response::success(null, 'Category saved successfully.');
+        $st = $db->prepare("SELECT * FROM categories WHERE id = ?");
+        $st->execute([$id]);
+        Response::success($st->fetch(), 'Category saved successfully.');
     }
 
     // Units CRUD
@@ -100,10 +125,20 @@ class SettingsController {
         Response::success(null, 'Unit saved successfully.');
     }
 
+    /** First use: put the standard defect reasons in the (empty) table so they can be edited. */
+    public static function seedRejectionReasons(PDO $db): void {
+        if ((int)$db->query("SELECT COUNT(*) FROM rejection_reasons")->fetchColumn() > 0) return;
+        $defaults = ['Blow Hole / Porosity', 'Crack / Shrinkage', 'Tool Break / Undercut', 'Thread Slip / Burr',
+                     'Dimension Out of Tolerance', 'Buffing Dent / Scratches', 'Plating Blister / Color Peel', 'Assembly Leak / Pressure Drop'];
+        $ins = $db->prepare("INSERT INTO rejection_reasons (reason_code, reason_name, category, active, created_at) VALUES (?, ?, 'GENERAL', 1, NOW())");
+        foreach ($defaults as $i => $n) $ins->execute([sprintf('REJ-%03d', $i + 1), $n]);
+    }
+
     // Rejection Reasons CRUD
     public static function rejectionReasons(): void {
         Auth::requireAuth();
         $db = Database::getConnection();
+        self::seedRejectionReasons($db);
         $reasons = $db->query("SELECT * FROM rejection_reasons ORDER BY id ASC")->fetchAll();
         Response::success($reasons);
     }
@@ -120,18 +155,30 @@ class SettingsController {
             Response::error('Reason name is required.', null, 400);
         }
 
-        $code = 'REJ-' . strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $name), 0, 8));
-
+        $active = isset($input['active']) ? ((int)$input['active'] ? 1 : 0) : 1;
         $db = Database::getConnection();
         if ($id) {
-            $db->prepare("UPDATE rejection_reasons SET reason_name = ?, category = ?, description = ?, updated_at = NOW() WHERE id = ?")
-               ->execute([$name, $category, $desc, $id]);
+            $db->prepare("UPDATE rejection_reasons SET reason_name = ?, category = ?, description = ?, active = ?, updated_at = NOW() WHERE id = ?")
+               ->execute([$name, $category ?: 'GENERAL', $desc, $active, $id]);
         } else {
-            $db->prepare("INSERT INTO rejection_reasons (reason_code, reason_name, category, description, active, created_at) VALUES (?, ?, ?, ?, 1, NOW())")
-               ->execute([$code, $name, $category, $desc]);
+            // a removed reason with the same name comes back instead of a duplicate
+            $ex = $db->prepare("SELECT id FROM rejection_reasons WHERE LOWER(reason_name) = LOWER(?) LIMIT 1");
+            $ex->execute([$name]);
+            if ($old = $ex->fetchColumn()) {
+                $db->prepare("UPDATE rejection_reasons SET active = 1, updated_at = NOW() WHERE id = ?")->execute([$old]);
+                $id = (int)$old;
+            } else {
+                $n = (int)$db->query("SELECT COALESCE(MAX(id), 0) FROM rejection_reasons")->fetchColumn() + 1;
+                $chk = $db->prepare("SELECT COUNT(*) FROM rejection_reasons WHERE reason_code = ?");
+                do { $code = sprintf('REJ-%03d', $n++); $chk->execute([$code]); } while ((int)$chk->fetchColumn());
+                $db->prepare("INSERT INTO rejection_reasons (reason_code, reason_name, category, description, active, created_at) VALUES (?, ?, ?, ?, 1, NOW())")
+                   ->execute([$code, $name, $category ?: 'GENERAL', $desc]);
+                $id = (int)$db->lastInsertId();
+            }
         }
-
-        Response::success(null, 'Rejection reason saved successfully.');
+        $st = $db->prepare("SELECT * FROM rejection_reasons WHERE id = ?");
+        $st->execute([$id]);
+        Response::success($st->fetch(), 'Rejection reason saved successfully.');
     }
 
     // Warehouses CRUD

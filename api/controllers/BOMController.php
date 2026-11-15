@@ -194,7 +194,7 @@ class BOMController {
                     $id,
                     $item['rm_id'],
                     $item['quantity_per_unit'],
-                    $item['unit_id'] ?? 1,
+                    $item['unit_id'] ?? 3,
                     $item['wastage_percentage'] ?? 0.00,
                     $item['scrap_factor'] ?? 0.00,
                     $item['sequence'] ?? ($idx + 1),
@@ -326,7 +326,7 @@ class BOMController {
                         $rmStmt = $db->prepare("SELECT unit_id FROM raw_materials WHERE id = ?");
                         $rmStmt->execute([$it['rm_id']]);
                         $rmU = $rmStmt->fetch();
-                        $unitId = (int)($rmU['unit_id'] ?? 1);
+                        $unitId = (int)($rmU['unit_id'] ?? 3);
                     }
 
                     $insItem->execute([

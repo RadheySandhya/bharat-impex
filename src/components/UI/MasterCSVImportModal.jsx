@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { parseCsvRows, normHeader } from '../../utils/csv';
 import { 
   Upload, 
   Download, 
@@ -82,13 +83,13 @@ export function MasterCSVImportModal({
         const text = event.target?.result;
         if (typeof text !== 'string') return;
 
-        const lines = text.split(/\r\n|\n/).filter((l) => l.trim().length > 0);
+        const lines = parseCsvRows(text); // rows of cells (BOM / quotes / CRLF safe)
         if (lines.length < 2) {
           error('CSV file is empty or missing header line.');
           return;
         }
 
-        const headers = parseCSVLine(lines[0]).map((h) => h.replace(/['"]+/g, '').trim().toLowerCase());
+        const headers = lines[0].map(normHeader);
 
         let codeIdx = -1;
         let nameIdx = -1;
@@ -112,17 +113,15 @@ export function MasterCSVImportModal({
 
         const rows = [];
         for (let i = 1; i < lines.length; i++) {
-          const line = lines[i];
-          if (!line.trim()) continue;
-          const cleanCols = parseCSVLine(line).map((c) => c.replace(/^"|"$/g, '').trim());
+          const cleanCols = lines[i];
 
           const codeVal = codeIdx !== -1 ? cleanCols[codeIdx] || '' : '';
           const nameVal = nameIdx !== -1 ? cleanCols[nameIdx] || '' : '';
           const catVal = catIdx !== -1 ? cleanCols[catIdx] || '' : (isRM ? 'Metals & Brass Alloys' : 'Faucets & Sanitary Ware');
-          const unitVal = unitIdx !== -1 ? cleanCols[unitIdx] || (isRM ? 'KG' : 'PCS') : (isRM ? 'KG' : 'PCS');
+          const unitVal = (unitIdx !== -1 && cleanCols[unitIdx]) ? cleanCols[unitIdx] : 'PCS';
           const priceVal = priceIdx !== -1 ? parseFloat(cleanCols[priceIdx]?.replace(/,/g, '') || '0') : 0;
-          const minVal = minIdx !== -1 ? parseFloat(cleanCols[minIdx]?.replace(/,/g, '') || '0') : (isRM ? 100 : 50);
-          const maxVal = maxIdx !== -1 ? parseFloat(cleanCols[maxIdx]?.replace(/,/g, '') || '0') : (minVal * 3);
+          const minVal = minIdx !== -1 ? parseFloat(cleanCols[minIdx]?.replace(/,/g, '') || '0') : 0;
+          const maxVal = maxIdx !== -1 ? parseFloat(cleanCols[maxIdx]?.replace(/,/g, '') || '0') : 0;
           const descVal = descIdx !== -1 ? cleanCols[descIdx] || '' : '';
 
           if (!nameVal && !codeVal) continue;
@@ -161,10 +160,10 @@ export function MasterCSVImportModal({
         code: '',
         name: '',
         category: isRM ? 'Metals & Brass Alloys' : 'Premium Basin Taps',
-        unit: isRM ? 'KG' : 'PCS',
-        price: isRM ? 500 : 1200,
-        reorder_level: isRM ? 100 : 50,
-        maximum_stock: isRM ? 500 : 250,
+        unit: 'PCS',
+        price: 0,
+        reorder_level: 0,
+        maximum_stock: 0,
         description: '',
         isExisting: false,
       },

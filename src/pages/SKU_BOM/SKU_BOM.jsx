@@ -10,7 +10,9 @@ import {
   Copy, 
   FileSpreadsheet, 
   Layers,
-  ArrowRight
+  ArrowRight,
+  Clock,
+  Package
 } from 'lucide-react';
 import Icon from '../../components/UI/Icon';
 import SearchableSelect from '../../components/UI/SearchableSelect';
@@ -30,6 +32,10 @@ export function SKU_BOM() {
   // Filters
   const [search, setSearch] = useState('');
   const [selectedFGFilter, setSelectedFGFilter] = useState('ALL');
+  // BOM status: products whose recipe is saved in the database vs still to do
+  const [bomTab, setBomTab] = useState('pending'); // pending (default: create BOM) | done | all
+  const [savedFgIds, setSavedFgIds] = useState(new Set());
+  const [copyFrom, setCopyFrom] = useState({}); // pending fg id -> source fg id
 
   const { success, error, warning } = useToast();
 
@@ -60,6 +66,7 @@ export function SKU_BOM() {
       setUnits(uList);
 
       const existingItems = itemsRes?.data || [];
+      setSavedFgIds(new Set(existingItems.filter((it) => it.fg_id && it.rm_id).map((it) => String(it.fg_id))));
       if (existingItems.length > 0) {
         setRows(
           existingItems.map((item, idx) => ({
@@ -103,7 +110,7 @@ export function SKU_BOM() {
   const createNewRow = (defaultFg = null, defaultRm = null, unitsList = units) => {
     const fg = defaultFg || finishedGoods[0] || null;
     const rm = defaultRm || null;
-    const unitId = rm ? (rm.unit_id || 1) : 1;
+    const unitId = rm ? (rm.unit_id || 3) : 3;
     const uObj = unitsList.find((u) => u.id === unitId) || unitsList[0];
 
     return {
@@ -192,7 +199,7 @@ export function SKU_BOM() {
     const selectedRm = rawMaterials.find((r) => String(r.id) === String(rmId));
     setRows((prev) => {
       const next = [...prev];
-      const unitId = selectedRm ? (selectedRm.unit_id || next[index].unit_id || 1) : next[index].unit_id;
+      const unitId = selectedRm ? (selectedRm.unit_id || next[index].unit_id || 3) : next[index].unit_id;
       const uObj = units.find((u) => u.id === unitId) || units[0];
 
       next[index] = {
@@ -285,6 +292,12 @@ export function SKU_BOM() {
       if (selectedFGFilter !== 'ALL' && String(item.fg_id) !== String(selectedFGFilter)) {
         return false;
       }
+      // BOM status tab (a picked product always shows, whatever the tab)
+      if (selectedFGFilter === 'ALL') {
+        const saved = savedFgIds.has(String(item.fg_id));
+        if (bomTab === 'done' && !saved) return false;
+        if (bomTab === 'pending' && saved) return false;
+      }
 
       // Search matching
       if (search) {
@@ -296,7 +309,7 @@ export function SKU_BOM() {
 
       return true;
     });
-  }, [rows, selectedFGFilter, search]);
+  }, [rows, search, selectedFGFilter, bomTab, savedFgIds]);
 
   // Unique Finished Goods counted in active recipes
   const uniqueFGCount = useMemo(() => {
@@ -306,6 +319,37 @@ export function SKU_BOM() {
     });
     return set.size;
   }, [rows]);
+
+  // Parts count per product (rows in the grid that have a child part)
+  const partsByFg = useMemo(() => {
+    const m = {};
+    rows.forEach((r) => { if (r.fg_id && r.rm_id) m[String(r.fg_id)] = (m[String(r.fg_id)] || 0) + 1; });
+    return m;
+  }, [rows]);
+  const doneFgs = useMemo(() => finishedGoods.filter((f) => savedFgIds.has(String(f.id))), [finishedGoods, savedFgIds]);
+  const pendingFgs = useMemo(() => finishedGoods.filter((f) => !savedFgIds.has(String(f.id))), [finishedGoods, savedFgIds]);
+
+  // Start a BOM for a product: copy another product's recipe, or add blank rows
+  const startBom = (fg, sourceFgId) => {
+    let newRows;
+    if (sourceFgId) {
+      const src = rows.filter((r) => String(r.fg_id) === String(sourceFgId) && r.rm_id);
+      newRows = src.map((r) => ({
+        ...r,
+        row_id: `row_new_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        fg_id: fg.id, fg_name: fg.product_name, fg_code: fg.fg_code,
+      }));
+      if (!newRows.length) { warning('That product has no recipe rows to copy.'); return; }
+    } else {
+      newRows = Array.from({ length: 5 }, () => createNewRow(fg));
+    }
+    setRows((prev) => [...prev, ...newRows]);
+    setIsDirty(true);
+    setSelectedFGFilter(fg.id);
+    success(sourceFgId
+      ? `Copied ${newRows.length} parts to ${fg.product_name}. Change what differs, then Save All BOM Recipes.`
+      : `Added 5 rows for ${fg.product_name}. Pick the child parts, then Save All BOM Recipes.`);
+  };
 
   return (
     <div className="space-y-4">
@@ -426,6 +470,89 @@ export function SKU_BOM() {
             <strong>{uniqueFGCount}</strong> Active Products
           </span>
         </div>
+      </div>
+
+      {/* BOM status: Done / Pending products */}
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-3 shadow-xs space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold">
+            {[
+              ['pending', `Create BOM (${pendingFgs.length} pending)`, Clock, 'text-amber-600'],
+              ['done', `BOM Done (${doneFgs.length})`, CheckCircle2, 'text-emerald-600'],
+              ['all', 'All', Layers, 'text-slate-500'],
+            ].map(([v, l, I, c]) => (
+              <button key={v} type="button" onClick={() => { setBomTab(v); setSelectedFGFilter('ALL'); }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg cursor-pointer ${bomTab === v ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}>
+                <I className={`w-3.5 h-3.5 ${c}`} /> {l}
+              </button>
+            ))}
+          </div>
+          <span className="text-[11.5px] text-slate-500">
+            {bomTab === 'pending' ? 'Products without a saved recipe. Start one blank, or copy a similar product and change what differs.'
+              : bomTab === 'done' ? 'Products with a saved recipe. Click one to open its recipe.' : 'Every recipe row.'}
+          </span>
+        </div>
+
+        {bomTab === 'done' && (
+          doneFgs.length === 0
+            ? <p className="text-xs text-slate-400 px-1">No saved BOM yet.</p>
+            : (
+              <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+                {doneFgs.map((fg) => (
+                  <button key={fg.id} type="button" onClick={() => setSelectedFGFilter(String(selectedFGFilter) === String(fg.id) ? 'ALL' : fg.id)}
+                    className={`text-left rounded-xl border px-3 py-2 cursor-pointer transition-colors ${String(selectedFGFilter) === String(fg.id) ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/40'}`}>
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span className="text-[12.5px] font-semibold text-slate-900 truncate">{fg.product_name}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5 font-mono">{fg.fg_code} · {partsByFg[String(fg.id)] || 0} parts</div>
+                  </button>
+                ))}
+              </div>
+            )
+        )}
+
+        {bomTab === 'pending' && (
+          pendingFgs.length === 0
+            ? <p className="text-xs text-emerald-700 px-1 flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" /> Every finished good has a BOM.</p>
+            : (
+              <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+                {pendingFgs.map((fg) => {
+                  const inProgress = partsByFg[String(fg.id)] || 0;
+                  return (
+                    <div key={fg.id} className={`rounded-xl border px-3 py-2.5 ${String(selectedFGFilter) === String(fg.id) ? 'border-amber-400 bg-amber-50/60' : 'border-slate-200'}`}>
+                      <div className="flex items-center gap-1.5">
+                        <Package className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span className="text-[12.5px] font-semibold text-slate-900 truncate">{fg.product_name}</span>
+                        <span className="ml-auto text-[10.5px] font-mono text-slate-500">{fg.fg_code}</span>
+                      </div>
+                      {inProgress > 0 ? (
+                        <button type="button" onClick={() => setSelectedFGFilter(fg.id)} className="mt-2 text-[11.5px] font-semibold text-amber-700 hover:underline cursor-pointer">
+                          {inProgress} parts added (not saved yet) · open
+                        </button>
+                      ) : (
+                        <div className="mt-2 flex items-center gap-1.5">
+                          <button type="button" onClick={() => startBom(fg)}
+                            className="h-8 px-2.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-[11.5px] font-semibold flex items-center gap-1 cursor-pointer">
+                            <Plus className="w-3.5 h-3.5" /> Blank BOM
+                          </button>
+                          <select value={copyFrom[fg.id] || ''} onChange={(e) => setCopyFrom((c) => ({ ...c, [fg.id]: e.target.value }))}
+                            disabled={!doneFgs.length} className="flex-1 min-w-0 h-8 px-2 rounded-lg border border-slate-300 text-[11.5px]" aria-label="Copy recipe from">
+                            <option value="">{doneFgs.length ? 'Copy from…' : 'No BOM to copy yet'}</option>
+                            {doneFgs.map((d) => <option key={d.id} value={d.id}>{d.product_name} ({partsByFg[String(d.id)] || 0} parts)</option>)}
+                          </select>
+                          <button type="button" disabled={!copyFrom[fg.id]} onClick={() => startBom(fg, copyFrom[fg.id])}
+                            className="h-8 px-2.5 rounded-lg bg-[#007AFF] hover:bg-[#0A6CF0] disabled:opacity-40 text-white text-[11.5px] font-semibold flex items-center gap-1 cursor-pointer">
+                            <Copy className="w-3.5 h-3.5" /> Copy
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )
+        )}
       </div>
 
       {/* GOOGLE SHEET SPREADSHEET TABLE */}
@@ -573,7 +700,7 @@ export function SKU_BOM() {
                       {/* Col E: Unit (Dropdown) */}
                       <td className="p-1.5 bg-[#fef9c3]/15">
                         <select
-                          value={row.unit_id || 1}
+                          value={row.unit_id || 3}
                           onChange={(e) => handleUnitChange(originalIdx, e.target.value)}
                           className="w-full px-2 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-900 font-bold text-xs focus:outline-none focus:ring-2 focus:ring-yellow-500 cursor-pointer"
                         >

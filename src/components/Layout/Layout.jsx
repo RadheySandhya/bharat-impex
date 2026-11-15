@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Sidebar } from './Sidebar';
 import { Navbar } from './Navbar';
 import { MobileBottomNav } from './MobileBottomNav';
+import { KeyboardShortcuts } from './KeyboardShortcuts';
 
 export function Layout({ children, activeTab, setActiveTab, settingsSubTab, setSettingsSubTab }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -12,6 +13,13 @@ export function Layout({ children, activeTab, setActiveTab, settingsSubTab, setS
     setCollapsedState(v);
     try { localStorage.setItem('bharat_sidebar_collapsed', v ? '1' : '0'); } catch (e) {}
   };
+  const toggleCollapsed = useCallback(() => {
+    if (window.innerWidth < 1024) { setSidebarOpen((v) => !v); return; }
+    setCollapsedState((v) => {
+      try { localStorage.setItem('bharat_sidebar_collapsed', v ? '0' : '1'); } catch (e) {}
+      return !v;
+    });
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#F5F5F7] text-slate-900 flex flex-col">
@@ -39,6 +47,7 @@ export function Layout({ children, activeTab, setActiveTab, settingsSubTab, setS
         </div>
       </div>
 
+      <KeyboardShortcuts setActiveTab={setActiveTab} setSettingsSubTab={setSettingsSubTab} toggleCollapsed={toggleCollapsed} />
       <MobileBottomNav activeTab={activeTab} setActiveTab={setActiveTab} onMenuOpen={() => setSidebarOpen(true)} />
     </div>
   );

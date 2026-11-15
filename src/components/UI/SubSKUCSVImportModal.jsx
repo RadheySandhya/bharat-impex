@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { parseCsvRows, normHeader } from '../../utils/csv';
 import { 
   Upload, 
   Download, 
@@ -69,17 +70,14 @@ export function SubSKUCSVImportModal({
         const text = event.target?.result;
         if (!text) return;
 
-        const lines = text
-          .split(/\r\n|\n|\r/)
-          .map((l) => l.trim())
-          .filter((l) => l.length > 0);
+        const lines = parseCsvRows(text); // rows of cells (BOM / quotes / CRLF safe)
 
         if (lines.length < 2) {
           error('CSV must contain a header row and at least one data row.');
           return;
         }
 
-        const headerCols = parseCSVLine(lines[0]).map((h) => h.toLowerCase().replace(/[^a-z0-9]/g, ''));
+        const headerCols = lines[0].map((h) => normHeader(h).replace(/[^a-z0-9]/g, ''));
 
         // Match column indices
         const parentCodeIdx = headerCols.findIndex((h) => h.includes('parentsku') || h.includes('parentcode') || h.includes('fgcode'));
@@ -100,7 +98,7 @@ export function SubSKUCSVImportModal({
 
         const rows = [];
         for (let i = 1; i < lines.length; i++) {
-          const cols = parseCSVLine(lines[i]);
+          const cols = lines[i];
           if (cols.length === 0 || cols.every((c) => c === '')) continue;
 
           const rawParentCode = (parentCodeIdx >= 0 ? cols[parentCodeIdx] : '').trim();

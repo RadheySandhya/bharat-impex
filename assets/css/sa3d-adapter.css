@@ -1,0 +1,127 @@
+/* =========================================================================
+   Bharat Impex IMS — Apple design layer (loaded last by IMS/index.php,
+   after shared/solveall-3d.css). Calm, light, translucent chrome; white
+   grouped cards on a #F5F5F7 canvas; flat system-blue actions; motion that
+   responds on press. Previous 3D version: sa3d-adapter.css.bak_ui_20261115
+   ========================================================================= */
+
+body.bi-app {
+  --bi-accent: #007AFF;
+  --ap-bg: #F5F5F7;
+  --ap-label: #1D1D1F;
+  --ap-secondary: #6E6E73;
+  --ap-tertiary: #86868B;
+  --ap-sep: rgba(60, 60, 67, 0.12);
+  --ap-card-shadow: 0 0.5px 0 rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.04), 0 6px 20px -8px rgba(0, 0, 0, 0.08);
+  --ap-card-shadow-hover: 0 1px 2px rgba(0, 0, 0, 0.05), 0 12px 32px -12px rgba(0, 0, 0, 0.16);
+  --ap-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ap-spring: cubic-bezier(0.2, 0.9, 0.25, 1);
+  background-color: var(--ap-bg) !important;
+  color: var(--ap-label);
+}
+body.bi-app .bg-\[\#F5F5F7\] { background-color: var(--ap-bg) !important; }
+/* display type: tight tracking as size grows (shared layer sets a fixed -0.02em) */
+body.bi-app main h1 { letter-spacing: -0.026em; }
+body.bi-app main h2 { letter-spacing: -0.022em; }
+body.bi-app main h3 { letter-spacing: -0.016em; }
+
+/* ── Toolbar: translucent light material, full width, hairline scroll edge ── */
+body.bi-app header.sticky.material {
+  top: 0 !important;
+  margin: 0;
+  border-radius: 0;
+  background: rgba(245, 245, 247, 0.72) !important;
+  -webkit-backdrop-filter: saturate(180%) blur(24px) !important;
+  backdrop-filter: saturate(180%) blur(24px) !important;
+  border: 0;
+  box-shadow: inset 0 -0.5px 0 rgba(60, 60, 67, 0.18) !important;
+  color: var(--ap-label);
+}
+body.bi-app header.sticky.material > div { height: 56px; }
+body.bi-app header.sticky.material h1 { font-size: 20px !important; font-weight: 650 !important; letter-spacing: -0.024em; color: var(--ap-label) !important; }
+
+/* ── Cards: white, hairline, soft diffuse depth ─────────────────────────── */
+body.bi-app main :is(div, section, article).bg-white:is(.rounded-2xl, .rounded-xl, .rounded-3xl),
+body.bi-app .white-card, body.bi-app .glass-card, body.bi-app .glass-panel {
+  background: #FFFFFF !important;
+  border-color: var(--ap-sep) !important;
+  box-shadow: var(--ap-card-shadow) !important;
+}
+body.bi-app main :is(div, section, article).rounded-2xl:is(.hover\:shadow-md, .hover\:shadow-lg, .white-card-hover):hover {
+  box-shadow: var(--ap-card-shadow-hover) !important;
+}
+
+/* ── Buttons: flat fills (no sheen), responsive press ───────────────────── */
+body.bi-app button.text-white[class*="bg-"] {
+  background-image: none !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12) !important;
+}
+body.bi-app button.text-white[class*="bg-"]:hover { filter: brightness(1.06); }
+body.bi-app button.text-white[class*="bg-"]:active { filter: brightness(0.94); box-shadow: none !important; }
+body.bi-app main button.bg-white.border, body.bi-app .bi-dialog button.bg-white.border {
+  background: #FFFFFF !important;
+  border-color: rgba(60, 60, 67, 0.18) !important;
+  box-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.06) !important;
+}
+body.bi-app main button.bg-white.border:hover { background: #FAFAFC !important; }
+body.bi-app button, body.bi-app [role="button"], body.bi-app [role="tab"] {
+  transition-property: scale, background-color, color, border-color, box-shadow, opacity, filter;
+  transition-timing-function: var(--ap-ease);
+}
+
+/* ── Fields: quiet, no inset shadow; blue focus halo ───────────────────── */
+body.bi-app :is(input[type="text"], input[type="search"], input[type="number"], input[type="date"], input[type="email"], input[type="password"], input[type="tel"], input:not([type]), select, textarea) {
+  box-shadow: none;
+  border-color: rgba(60, 60, 67, 0.18);
+}
+body.bi-app :is(input, select, textarea):focus { border-color: var(--bi-accent) !important; box-shadow: 0 0 0 3.5px rgba(0, 122, 255, 0.18) !important; }
+
+/* ── Tables: calm header, row hover ─────────────────────────────────────── */
+body.bi-app main table thead th { color: var(--ap-secondary); font-weight: 600; letter-spacing: 0.02em; }
+body.bi-app main table tbody tr { transition: background-color 120ms var(--ap-ease); }
+body.bi-app main table tbody tr:hover { background-color: rgba(0, 122, 255, 0.035); }
+body.bi-app main .overflow-x-auto { -webkit-overflow-scrolling: touch; }
+
+/* ── Dialogs: materialize (scale + blur arrive together), dim to focus ──── */
+@keyframes ap-materialize { from { opacity: 0; scale: 0.96; filter: blur(6px); } to { opacity: 1; scale: 1; filter: blur(0); } }
+body.bi-app .bi-dialog {
+  background: #FFFFFF !important;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 30px 80px -20px rgba(0, 0, 0, 0.35) !important;
+}
+@media (min-width: 640px) {
+  body.bi-app .bi-dialog { animation: ap-materialize 280ms var(--ap-spring) backwards; }
+}
+body.bi-app .fixed.inset-0[class*="bg-slate-900"], body.bi-app .fixed.inset-0[class*="bg-black"] {
+  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+}
+
+/* ── Phone tab bar: translucent material ────────────────────────────────── */
+body.bi-app nav.fixed.bottom-0.material {
+  background: rgba(249, 249, 251, 0.78) !important;
+  -webkit-backdrop-filter: saturate(180%) blur(24px) !important;
+  backdrop-filter: saturate(180%) blur(24px) !important;
+  box-shadow: inset 0 0.5px 0 rgba(60, 60, 67, 0.2) !important;
+  border: 0; border-radius: 0;
+}
+body.bi-app nav.fixed.bottom-0.material button[aria-current="page"] { color: var(--bi-accent) !important; }
+
+/* ── Keyboard shortcut hints ────────────────────────────────────────────── */
+body.bi-app kbd {
+  font-family: var(--sa-font, system-ui); font-size: 11px; font-weight: 600; color: #3A3A3C;
+  min-width: 22px; height: 22px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center;
+  background: #FFFFFF; border: 0.5px solid rgba(60, 60, 67, 0.25); border-radius: 6px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* ── Accessibility ──────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  body.bi-app .bi-dialog { animation: none !important; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  body.bi-app header.sticky.material, body.bi-app nav.fixed.bottom-0.material {
+    background: #F5F5F7 !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+  }
+}
+@media (max-width: 1023px) {
+  body.bi-app main { padding-bottom: 28px !important; }
+}

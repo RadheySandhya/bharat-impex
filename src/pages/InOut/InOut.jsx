@@ -25,8 +25,7 @@ import {
   Check,
   ChevronRight,
   ChevronDown,
-  Info
-} from 'lucide-react';
+  Info, X } from 'lucide-react';
 import Icon from '../../components/UI/Icon';
 import Modal from '../../components/UI/Modal';
 import SearchableSelect from '../../components/UI/SearchableSelect';
@@ -985,25 +984,18 @@ export function InOut() {
                           {/* Col B: Party Name (Combobox / Free typing + Datalist) */}
                           <td className="p-1.5">
                             <div className="relative">
-                              <input
-                                list={`party-list-${row.row_id}`}
-                                type="text"
-                                placeholder="Select or type Party..."
+                              <SearchableSelect
+                                creatable
                                 value={row.party_name || ''}
-                                onChange={(e) => handleCellChange(originalIdx, 'party_name', e.target.value)}
-                                className={`w-full text-xs font-semibold bg-white rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 border transition-all ${
-                                  isOut
-                                    ? 'border-rose-200 hover:border-rose-300 focus:ring-rose-500/20 focus:border-rose-500'
-                                    : 'border-emerald-200 hover:border-emerald-300 focus:ring-emerald-500/20 focus:border-emerald-500'
+                                onChange={(val) => handleCellChange(originalIdx, 'party_name', val || '')}
+                                placeholder="Select or type party..."
+                                searchPlaceholder="Type party name..."
+                                className="w-full"
+                                buttonClassName={`text-xs font-semibold rounded-xl px-2.5 py-2 bg-white border transition-all ${
+                                  isOut ? 'border-rose-200 hover:border-rose-300' : 'border-emerald-200 hover:border-emerald-300'
                                 }`}
+                                options={parties.map((p) => ({ value: p.party_name, label: p.party_name, badge: p.party_type }))}
                               />
-                              <datalist id={`party-list-${row.row_id}`}>
-                                {parties.map((p) => (
-                                  <option key={p.id} value={p.party_name}>
-                                    {p.party_name} ({p.party_type})
-                                  </option>
-                                ))}
-                              </datalist>
                             </div>
                           </td>
 
@@ -1682,8 +1674,9 @@ export function InOut() {
                 type="button"
                 onClick={() => setIsPartyModalOpen(false)}
                 className="text-slate-400 hover:text-slate-600 text-sm font-bold p-1 cursor-pointer"
+                aria-label="Close"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 

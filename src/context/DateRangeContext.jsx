@@ -4,15 +4,11 @@ const DateRangeContext = createContext();
 
 export function DateRangeProvider({ children }) {
   const [dateRange, setDateRange] = useState(() => {
-    // Default to THIS_MONTH up to Today (no future dates)
+    // Default: last 7 days including today (local dates, never future)
     const now = new Date();
-    const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-    const to = now.toISOString().split('T')[0];
-    return {
-      from,
-      to,
-      preset: 'THIS_MONTH',
-    };
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+    return { from: fmt(from), to: fmt(now), preset: 'LAST_7_DAYS' };
   });
 
   return (

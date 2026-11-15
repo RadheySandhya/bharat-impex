@@ -53,18 +53,38 @@ class PlanningController {
         return $batchNumber;
     }
 
+    /** Plans can be for a Finished Good (fg_id) or for an in-house Child Part (item_type RM + rm_id). */
+    public static function ensureItemTypeColumns(PDO $db): void {
+        static $done = false;
+        if ($done) return;
+        $done = true;
+        try {
+            if (!$db->query("SHOW COLUMNS FROM production_planning LIKE 'item_type'")->fetch()) {
+                $db->exec("ALTER TABLE production_planning ADD COLUMN item_type VARCHAR(5) NOT NULL DEFAULT 'FG' AFTER planning_number, ADD COLUMN rm_id INT NULL AFTER fg_id");
+            }
+            $col = $db->query("SHOW COLUMNS FROM production_planning LIKE 'fg_id'")->fetch(PDO::FETCH_ASSOC);
+            if ($col && strtoupper($col['Null'] ?? '') === 'NO') {
+                $db->exec("ALTER TABLE production_planning MODIFY fg_id INT NULL");
+            }
+        } catch (Exception $e) {
+            error_log('production_planning item_type upgrade failed: ' . $e->getMessage());
+        }
+    }
+
     private static function fetchOne(int $id): ?array {
         $db   = self::db();
+        self::ensureItemTypeColumns($db);
         $stmt = $db->prepare("
             SELECT pp.*,
-                   fg.fg_code, fg.product_name,
+                   COALESCE(fg.fg_code, rm.rm_code) AS fg_code, COALESCE(fg.product_name, rm.material_name) AS product_name,
                    u.unit_code, u.unit_name,
                    w.warehouse_name,
                    ub.full_name AS created_by_name,
                    ua.full_name AS approved_by_name,
                    (pp.planned_quantity - pp.released_quantity) AS pending_quantity
             FROM production_planning pp
-            JOIN finished_goods fg  ON fg.id = pp.fg_id
+            LEFT JOIN finished_goods fg ON fg.id = pp.fg_id
+            LEFT JOIN raw_materials rm  ON rm.id = pp.rm_id
             JOIN units u            ON u.id  = pp.unit_id
             JOIN warehouses w       ON w.id  = pp.warehouse_id
             LEFT JOIN users ub      ON ub.id = pp.created_by
@@ -135,11 +155,13 @@ class PlanningController {
             $where[] = "pp.status NOT IN ('CANCELLED','FULLY_RELEASED','COMPLETED')";
         }
 
-        $sql = "SELECT pp.*, fg.fg_code, fg.product_name, u.unit_code, w.warehouse_name,
+        self::ensureItemTypeColumns(self::db());
+        $sql = "SELECT pp.*, COALESCE(fg.fg_code, rm.rm_code) AS fg_code, COALESCE(fg.product_name, rm.material_name) AS product_name, u.unit_code, w.warehouse_name,
                        ub.full_name AS created_by_name,
                        (pp.planned_quantity - pp.released_quantity) AS pending_quantity
                 FROM production_planning pp
-                JOIN finished_goods fg  ON fg.id = pp.fg_id
+                LEFT JOIN finished_goods fg ON fg.id = pp.fg_id
+                LEFT JOIN raw_materials rm  ON rm.id = pp.rm_id
                 JOIN units u            ON u.id  = pp.unit_id
                 JOIN warehouses w       ON w.id  = pp.warehouse_id
                 LEFT JOIN users ub      ON ub.id = pp.created_by
@@ -203,7 +225,9 @@ class PlanningController {
     // POST /api/planning
     public static function create(): void {
         $body     = json_decode(file_get_contents('php://input'), true) ?? [];
-        $fgId     = (int)($body['fg_id']            ?? 0);
+        $itemType = strtoupper(trim((string)($body['item_type'] ?? 'FG'))) === 'RM' ? 'RM' : 'FG';
+        $fgId     = $itemType === 'FG' ? (int)($body['fg_id'] ?? 0) : 0;
+        $rmId     = $itemType === 'RM' ? (int)($body['rm_id'] ?? 0) : 0;
         $qty      = (float)($body['planned_quantity'] ?? 0);
         $unitId   = (int)($body['unit_id']           ?? 3);
         $whId     = (int)($body['warehouse_id']      ?? 3);
@@ -212,23 +236,25 @@ class PlanningController {
         $reqDate  = !empty($body['required_date'])    ? $body['required_date'] : null;
         $remarks  = $body['remarks']                  ?? null;
 
-        if (!$fgId)   { Response::error('fg_id is required', null, 400); return; }
+        if ($itemType === 'FG' && !$fgId) { Response::error('Choose the finished good to plan.', null, 400); return; }
+        if ($itemType === 'RM' && !$rmId) { Response::error('Choose the child part to plan.', null, 400); return; }
         if ($qty <= 0) { Response::error('Planned quantity must be > 0', null, 400); return; }
         if (!in_array($priority, ['LOW','NORMAL','HIGH','CRITICAL'])) $priority = 'NORMAL';
 
         $userId  = self::userId();
         $db      = self::db();
+        self::ensureItemTypeColumns($db);
         $planNum = self::nextPlanningNumber();
 
         $stmt = $db->prepare("
             INSERT INTO production_planning
-              (planning_number, fg_id, unit_id, warehouse_id, planned_quantity,
+              (planning_number, item_type, fg_id, rm_id, unit_id, warehouse_id, planned_quantity,
                priority, status, planning_date, required_date, remarks, created_by)
             VALUES
-              (:pn, :fg, :unit, :wh, :qty, :prio, 'PLANNED', :pd, :rd, :rem, :cb)
+              (:pn, :it, :fg, :rm, :unit, :wh, :qty, :prio, 'PLANNED', :pd, :rd, :rem, :cb)
         ");
         $stmt->execute([
-            ':pn' => $planNum, ':fg' => $fgId, ':unit' => $unitId, ':wh' => $whId,
+            ':pn' => $planNum, ':it' => $itemType, ':fg' => $fgId ?: null, ':rm' => $rmId ?: null, ':unit' => $unitId, ':wh' => $whId,
             ':qty' => $qty,   ':prio' => $priority, ':pd' => $date,
             ':rd' => $reqDate, ':rem' => $remarks, ':cb' => $userId,
         ]);
@@ -329,6 +355,7 @@ class PlanningController {
 
             // Upfront Full Kitting (RM Deduction) on Release
             $autoKitting   = isset($body['auto_kitting']) ? (bool)$body['auto_kitting'] : true;
+            if (($p['item_type'] ?? 'FG') === 'RM') $autoKitting = false; // in-house child part: no BOM kitting
             $allowOverride = isset($body['allow_shortage_override']) ? (bool)$body['allow_shortage_override'] : true;
             $customItems   = $body['kitting_items'] ?? null;
             $warehouseId   = (int)($body['warehouse_id'] ?? 1);
@@ -516,12 +543,13 @@ class PlanningController {
         $sql = "
             SELECT pr.*, 
                    pp.planning_number, pp.priority, pp.planned_quantity,
-                   fg.id as fg_id, fg.fg_code, fg.product_name,
+                   fg.id as fg_id, pp.item_type, pp.rm_id, COALESCE(fg.fg_code, rm.rm_code) AS fg_code, COALESCE(fg.product_name, rm.material_name) AS product_name,
                    COALESCE(u.unit_code, 'PCS') as unit_code,
                    usr.full_name as released_by_name
             FROM planning_releases pr
             JOIN production_planning pp ON pr.planning_id = pp.id
-            JOIN finished_goods fg ON pp.fg_id = fg.id
+            LEFT JOIN finished_goods fg ON pp.fg_id = fg.id
+            LEFT JOIN raw_materials rm ON pp.rm_id = rm.id
             LEFT JOIN units u ON pp.unit_id = u.id
             LEFT JOIN users usr ON pr.released_by = usr.id
             WHERE " . implode(' AND ', $where) . "

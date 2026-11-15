@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { parseCsvRows, normHeader } from '../../utils/csv';
 import Icon from './Icon';
 import { api } from '../../services/api';
 import { downloadBulkStockTemplate } from '../../utils/csvTemplates';
@@ -52,7 +53,7 @@ export function BulkStockUploadModal({ isOpen, onClose, onStockUpdated, rawMater
         const text = event.target?.result;
         if (typeof text !== 'string') return;
 
-        const lines = text.split(/\r\n|\n/).filter((l) => l.trim().length > 0);
+        const lines = parseCsvRows(text); // rows of cells (BOM / quotes / CRLF safe)
         if (lines.length < 2) {
           error('CSV file is empty or missing headers.');
           return;
@@ -83,7 +84,7 @@ export function BulkStockUploadModal({ isOpen, onClose, onStockUpdated, rawMater
         };
 
         const headerLine = lines[0];
-        const headers = parseCSVLine(headerLine).map((h) => h.replace(/['"]+/g, '').trim().toLowerCase());
+        const headers = headerLine.map(normHeader);
 
         let idIdx = -1;
         let typeIdx = -1;
@@ -111,9 +112,7 @@ export function BulkStockUploadModal({ isOpen, onClose, onStockUpdated, rawMater
 
         const rows = [];
         for (let i = 1; i < lines.length; i++) {
-          const line = lines[i];
-          if (!line.trim()) continue;
-          const cleanCols = parseCSVLine(line).map((c) => c.replace(/^"|"$/g, '').trim());
+          const cleanCols = lines[i];
 
           const idVal = idIdx !== -1 ? cleanCols[idIdx] || '' : '';
           const codeVal = codeIdx !== -1 ? cleanCols[codeIdx] || '' : '';

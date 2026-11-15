@@ -375,6 +375,52 @@ class ProductionController {
 
         $db = Database::getConnection();
 
+        // 0. In-house child part batch (planning item_type RM): credit Child Part stock
+        try {
+            $rmPlan = $db->prepare("
+                SELECT pp.rm_id, rm.*
+                FROM planning_releases pr
+                JOIN production_planning pp ON pr.planning_id = pp.id
+                JOIN raw_materials rm ON rm.id = pp.rm_id
+                WHERE pr.release_number = ? AND pp.item_type = 'RM'
+                LIMIT 1
+            ");
+            $rmPlan->execute([ltrim($batchNo, '#')]);
+            $rm = $rmPlan->fetch();
+        } catch (Exception $e) {
+            $rm = null; // item_type column not created yet = no child-part plans exist
+        }
+        if ($rm) {
+            $bn = ltrim($batchNo, '#');
+            $warehouseId = !empty($input['warehouse_id']) ? (int)$input['warehouse_id'] : 1;
+            $dup = $db->prepare("SELECT id, quantity_in, created_at FROM stock_ledger WHERE material_type = 'RM' AND material_id = ? AND transaction_type = 'PRODUCTION_OUTPUT' AND (transaction_id = ? OR reference_number = ?) ORDER BY id DESC LIMIT 1");
+            $dup->execute([$rm['id'], $bn, $bn]);
+            $prev = $dup->fetch();
+            if ($prev && !$force) {
+                Response::success(['already_deposited' => true, 'batch_no' => $bn, 'rm_id' => (int)$rm['id'], 'deposited_qty' => (float)$prev['quantity_in']],
+                    "Batch {$bn} was already added to Child Part stock.");
+                return;
+            }
+            try {
+                $db->beginTransaction();
+                InventoryService::increaseStock(
+                    'RM', (int)$rm['id'], $rm['rm_code'], $rm['material_name'], $warehouseId, $goodQty, (int)($rm['unit_id'] ?: 3),
+                    (float)($rm['standard_rate'] ?? 0), 'PRODUCTION_OUTPUT', $bn, $bn, $bn, date('Y-m-d'),
+                    "In-house child part made: SKU Tracking final handoff. Operator: {$operator}. " . ($remarks ?: ''),
+                    $user['id'] ?? null
+                );
+                $db->commit();
+            } catch (Exception $e) {
+                if ($db->inTransaction()) $db->rollBack();
+                Response::error('Could not add child part stock: ' . $e->getMessage(), null, 400);
+            }
+            $cur = $db->prepare("SELECT COALESCE(SUM(quantity),0) FROM stock WHERE material_type = 'RM' AND material_id = ?");
+            $cur->execute([$rm['id']]);
+            Response::success(['item_type' => 'RM', 'rm_id' => (int)$rm['id'], 'batch_no' => $bn, 'new_stock' => (float)$cur->fetchColumn()],
+                "Batch {$bn}: {$goodQty} pcs added to Child Part stock ({$rm['material_name']}).");
+            return;
+        }
+
         // 1. Resolve Finished Good
         $fg = null;
         if ($fgId > 0) {
@@ -675,12 +721,47 @@ class ProductionController {
             }
         }
 
+        // Stock of every BOM child part in every godown, so the user can see where stock really is
+        // and kit from the right godown (purchases may land in a different godown than WH-MAIN).
+        $byWh = [];
+        $whScore = [];
+        $rmIds = array_values(array_unique(array_filter(array_map(fn($it) => (int)($it['rm_id'] ?? 0), $items))));
+        if ($rmIds) {
+            $ph = implode(',', array_fill(0, count($rmIds), '?'));
+            $st = $db->prepare("
+                SELECT s.material_id, s.warehouse_id, w.warehouse_name, SUM(s.available_quantity) AS avail
+                FROM stock s JOIN warehouses w ON w.id = s.warehouse_id
+                WHERE s.material_type = 'RM' AND s.material_id IN ({$ph})
+                GROUP BY s.material_id, s.warehouse_id, w.warehouse_name
+            ");
+            $st->execute($rmIds);
+            foreach ($st->fetchAll() as $r) {
+                $byWh[(int)$r['material_id']][] = ['warehouse_id' => (int)$r['warehouse_id'], 'warehouse_name' => $r['warehouse_name'], 'available' => (float)$r['avail']];
+            }
+            foreach ($items as $it) {
+                $need = (float)($it['total_required_qty'] ?? 0);
+                foreach ($byWh[(int)($it['rm_id'] ?? 0)] ?? [] as $w) {
+                    // score = how much of the requirement this godown can cover
+                    $whScore[$w['warehouse_id']] = ($whScore[$w['warehouse_id']] ?? 0) + min(max($w['available'], 0), $need);
+                }
+            }
+        }
+        foreach ($items as &$it) {
+            $list = $byWh[(int)($it['rm_id'] ?? 0)] ?? [];
+            $it['stock_by_warehouse'] = $list;
+            $it['total_available_all'] = array_sum(array_map(fn($w) => $w['available'], $list));
+        }
+        unset($it);
+        arsort($whScore);
+        $suggestedWh = $whScore ? (int)array_key_first($whScore) : $warehouseId;
+
         Response::success([
             'fg_id'               => $fg['id'],
             'fg_code'             => $fg['fg_code'],
             'product_name'        => $fg['product_name'],
             'quantity'            => $quantity,
             'warehouse_id'        => $warehouseId,
+            'suggested_warehouse_id' => $suggestedWh,
             'has_bom'             => (bool)$bom,
             'bom_code'            => $bom ? $bom['bom_code'] : null,
             'has_shortage'        => $hasShortage,

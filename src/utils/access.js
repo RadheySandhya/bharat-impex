@@ -27,6 +27,7 @@ export const SETTINGS_SUB_PERMISSION = {
   users: 'settings.users',
   company: 'settings.company',
   audit: 'settings.audit',
+  defect_reasons: 'masters.view',
 };
 
 // Order used to pick a landing screen for a user

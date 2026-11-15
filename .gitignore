@@ -14,6 +14,11 @@ package-lock.json
 # Deployment zip archives
 *.zip
 
+# Backup files
+*.bak_*
+*.bak*
+*_old_*
+
 # Operating System Files
 .DS_Store
 Thumbs.db

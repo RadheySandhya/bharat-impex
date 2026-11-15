@@ -143,7 +143,7 @@ export function FullKittingModal({
       if (res?.data?.already_issued) {
         warning(`Child parts for Batch #${batchNo} were already deducted.`);
       } else {
-        success(`🎉 Full Kitting Completed! Child parts deducted upfront for Batch #${batchNo}.`);
+        success(`Full Kitting completed. Child parts deducted upfront for Batch #${batchNo}.`);
       }
 
       if (onSuccess) {

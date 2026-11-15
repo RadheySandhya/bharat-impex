@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { CheckCircle2, Zap } from 'lucide-react';
 import Icon from '../../components/UI/Icon';
 import { StatusBadge } from '../../components/UI/StatusBadge';
 import { Modal } from '../../components/UI/Modal';
@@ -176,24 +177,26 @@ function PlanningCard({ plan, onView, onRelease, onApprove }) {
 }
 
 // ── New Planning Form ─────────────────────────────────────────
-function NewPlanningModal({ isOpen, onClose, finishedGoods, units, warehouses, onCreated }) {
+function NewPlanningModal({ isOpen, onClose, finishedGoods, rawMaterials = [], units, warehouses, onCreated }) {
   const { success, error } = useToast();
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
-    fg_id: '', planned_quantity: '', unit_id: 3, warehouse_id: 3,
+    item_type: 'FG', fg_id: '', rm_id: '', planned_quantity: '', unit_id: 3, warehouse_id: 3,
     priority: 'NORMAL', required_date: '', remarks: '',
   });
+  const isRM = form.item_type === 'RM';
 
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.fg_id || !form.planned_quantity) { error('Finished Good and Quantity are required'); return; }
+    if (!(isRM ? form.rm_id : form.fg_id) || !form.planned_quantity) { error(`${isRM ? 'Child Part' : 'Finished Good'} and Quantity are required`); return; }
     setLoading(true);
     try {
       const res = await api.planning.create({
         ...form,
-        fg_id: Number(form.fg_id),
+        fg_id: isRM ? null : Number(form.fg_id),
+        rm_id: isRM ? Number(form.rm_id) : null,
         planned_quantity: Number(form.planned_quantity),
         unit_id: Number(form.unit_id),
         warehouse_id: Number(form.warehouse_id),
@@ -202,7 +205,7 @@ function NewPlanningModal({ isOpen, onClose, finishedGoods, units, warehouses, o
       success(`Planning ${res.data?.planning_number} created!`);
       onCreated(res.data);
       onClose();
-      setForm({ fg_id:'', planned_quantity:'', unit_id:3, warehouse_id:3, priority:'NORMAL', required_date:'', remarks:'' });
+      setForm({ item_type:'FG', fg_id:'', rm_id:'', planned_quantity:'', unit_id:3, warehouse_id:3, priority:'NORMAL', required_date:'', remarks:'' });
     } catch (err) {
       error(err.message);
     } finally {
@@ -232,19 +235,48 @@ function NewPlanningModal({ isOpen, onClose, finishedGoods, units, warehouses, o
 
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">
-            <label className="block font-bold text-slate-700 mb-1">Finished Good <span className="text-red-500">*</span></label>
-            <SearchableSelect
-              value={form.fg_id}
-              onChange={val => set('fg_id', val)}
-              required
-              options={finishedGoods.map(fg => ({
-                value: fg.id,
-                label: fg.product_name,
-                sublabel: fg.fg_code
-              }))}
-              placeholder="— Search or Select Finished Good —"
-              searchPlaceholder="Type product name or FG code..."
-            />
+            <label className="block font-bold text-slate-700 mb-1">What are you making?</label>
+            <div className="inline-flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+              {[['FG', 'Finished Good'], ['RM', 'Child Part (made in-house)']].map(([v, l]) => (
+                <button key={v} type="button" onClick={() => set('item_type', v)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${form.item_type === v ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}>
+                  {l}
+                </button>
+              ))}
+            </div>
+            {isRM && (
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                For child parts you make yourself (e.g. a casting body). No BOM kitting on release; when the batch finishes in SKU Tracking the pieces are added to Child Part stock.
+              </p>
+            )}
+          </div>
+          <div className="col-span-2">
+            <label className="block font-bold text-slate-700 mb-1">{isRM ? 'Child Part' : 'Finished Good'} <span className="text-red-500">*</span></label>
+            {isRM ? (
+              <SearchableSelect
+                key="rm"
+                value={form.rm_id}
+                onChange={val => set('rm_id', val)}
+                required
+                options={rawMaterials.map(rm => ({ value: rm.id, label: rm.material_name, sublabel: rm.rm_code }))}
+                placeholder="— Search or Select Child Part —"
+                searchPlaceholder="Type child part name or code..."
+              />
+            ) : (
+              <SearchableSelect
+                key="fg"
+                value={form.fg_id}
+                onChange={val => set('fg_id', val)}
+                required
+                options={finishedGoods.map(fg => ({
+                  value: fg.id,
+                  label: fg.product_name,
+                  sublabel: fg.fg_code
+                }))}
+                placeholder="— Search or Select Finished Good —"
+                searchPlaceholder="Type product name or FG code..."
+              />
+            )}
           </div>
 
           <div>
@@ -317,7 +349,7 @@ function NewPlanningModal({ isOpen, onClose, finishedGoods, units, warehouses, o
 }
 
 // ── Release Modal with Upfront BOM & Stock Check ───────────────
-function ReleaseModal({ isOpen, onClose, plan, onReleased }) {
+function ReleaseModal({ isOpen, onClose, plan, onReleased, warehouses = [] }) {
   const { success, error, warning } = useToast();
   const [qty, setQty]                 = useState('');
   const [remarks, setRemarks]         = useState('');
@@ -328,6 +360,8 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased }) {
   const [allowOverride, setAllowOverride] = useState(true);
   const [subChildParts, setSubChildParts] = useState([]);
   const [selectedVariants, setSelectedVariants] = useState({});
+  // Godown to kit from: null = auto (the godown that holds most of the needed child parts)
+  const [kitWarehouseId, setKitWarehouseId] = useState(null);
 
   const pending = plan ? Math.max(0, Number(plan.planned_quantity || 0) - Number(plan.released_quantity || 0)) : 0;
 
@@ -347,14 +381,15 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased }) {
       setAllowOverride(true);
       setAutoKitting(true);
       setSelectedVariants({});
-      fetchKittingPreview(initialQty);
+      setKitWarehouseId(null);
+      fetchKittingPreview(initialQty, null);
     } else {
       setKittingData(null);
     }
   }, [isOpen, plan?.id]);
 
-  const fetchKittingPreview = async (targetQty) => {
-    if (!plan || !targetQty || Number(targetQty) <= 0) {
+  const fetchKittingPreview = async (targetQty, whId = kitWarehouseId) => {
+    if (!plan || plan.item_type === 'RM' || !targetQty || Number(targetQty) <= 0) {
       setKittingData(null);
       return;
     }
@@ -364,9 +399,16 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased }) {
         fg_id: plan.fg_id,
         cat_no: plan.fg_code,
         quantity: Number(targetQty),
-        warehouse_id: 1, // WH-MAIN
+        warehouse_id: whId || plan.warehouse_id || 1,
       });
       if (res?.data) {
+        const sug = Number(res.data.suggested_warehouse_id || 0);
+        // Auto mode: switch to the godown that actually holds the stock
+        if (!whId && sug && sug !== Number(res.data.warehouse_id)) {
+          setKitWarehouseId(sug);
+          return fetchKittingPreview(targetQty, sug);
+        }
+        if (!whId) setKitWarehouseId(Number(res.data.warehouse_id));
         setKittingData(res.data);
       }
     } catch (err) {
@@ -417,12 +459,13 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased }) {
       const res = await api.planning.release(plan.id, q, remarks, {
         auto_kitting: autoKitting,
         allow_shortage_override: allowOverride,
-        kitting_items: preparedKittingItems
+        kitting_items: preparedKittingItems,
+        warehouse_id: kitWarehouseId || kittingData?.warehouse_id || 1,
       });
 
       const relNum = res.data?.release?.release_number || 'Batch';
       if (res.data?.kitting_results?.length > 0) {
-        success(`🎉 ${relNum} — ${q} units released to SKU Tracking with Full Kitting completed!`);
+        success(`${relNum} — ${q} units released to SKU Tracking with Full Kitting completed!`);
       } else {
         success(`${relNum} — ${q} units released to SKU Tracking!`);
       }
@@ -530,6 +573,18 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased }) {
                 BOM Child Part Stock Check (Full Kitting Preview)
               </span>
             </div>
+            <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 ml-auto mr-2">
+              Kit from godown
+              <select
+                value={kitWarehouseId || ''}
+                onChange={(e) => { const w = Number(e.target.value) || null; setKitWarehouseId(w); fetchKittingPreview(qty, w); }}
+                className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-800 cursor-pointer"
+              >
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>{w.warehouse_name}{Number(kittingData?.suggested_warehouse_id) === Number(w.id) ? ' (most stock)' : ''}</option>
+                ))}
+              </select>
+            </label>
             {kittingLoading && (
               <span className="text-[10px] text-blue-600 font-bold flex items-center gap-1 animate-pulse">
                 <span className="w-2 h-2 rounded-full bg-blue-600 animate-ping inline-block" /> Checking store stock...
@@ -546,7 +601,7 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased }) {
                     <th className="p-2">Child Part Name</th>
                     <th className="p-2 min-w-[200px]">Child Part Variety / Brand</th>
                     <th className="p-2 text-right">Required Qty</th>
-                    <th className="p-2 text-right">In Store (WH-MAIN)</th>
+                    <th className="p-2 text-right">In Store ({warehouses.find((w) => Number(w.id) === Number(kitWarehouseId))?.warehouse_name || 'Godown'})</th>
                     <th className="p-2 text-center whitespace-nowrap min-w-[130px]">Status</th>
                   </tr>
                 </thead>
@@ -599,6 +654,9 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased }) {
                             {fmt(availStock, 3)}
                           </span>
                           <span className="text-[10px] text-slate-500 font-bold ml-1">{item.unit_code}</span>
+                          {(item.stock_by_warehouse || []).filter((w) => Number(w.warehouse_id) !== Number(kitWarehouseId) && w.available !== 0).map((w) => (
+                            <div key={w.warehouse_id} className="text-[10px] text-slate-500 font-semibold whitespace-nowrap">{w.warehouse_name}: {fmt(w.available, 0)}</div>
+                          ))}
                         </td>
                         <td className="p-2 text-center whitespace-nowrap">
                           {isShortage ? (
@@ -622,6 +680,10 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased }) {
                 </tbody>
               </table>
             </div>
+          ) : plan?.item_type === 'RM' ? (
+            <p className="text-[11px] text-slate-600 p-2 bg-slate-50 rounded-lg">
+              In-house child part: no kitting. When this batch finishes in SKU Tracking, the pieces are added to Child Part stock.
+            </p>
           ) : !kittingLoading ? (
             <p className="text-[11px] text-slate-500 italic p-2 bg-slate-50 rounded-lg">
               No custom BOM found. System will calculate fallback child part requirements upon release.
@@ -814,7 +876,7 @@ function PlanningDetail({ plan, onClose, onRelease, onApprove, onCancel, onRefre
                             className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 cursor-pointer shadow-2xs"
                             title="Child Part stock deducted upfront. Click to view breakdown."
                           >
-                            ✓ RM Kitted
+                            <CheckCircle2 className="w-2.5 h-2.5 inline -mt-px mr-0.5" />RM Kitted
                           </span>
                         ) : (
                           <button
@@ -823,7 +885,7 @@ function PlanningDetail({ plan, onClose, onRelease, onApprove, onCancel, onRefre
                             className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 cursor-pointer shadow-2xs"
                             title="Deduct child part inventory upfront for this batch"
                           >
-                            ⚡ Deduct RM Kitting
+                            <Zap className="w-2.5 h-2.5 inline -mt-px mr-0.5" />Deduct RM Kitting
                           </button>
                         )}
                       </div>
@@ -900,6 +962,7 @@ export function Planning() {
   const [plans,         setPlans]         = useState([]);
   const [stats,         setStats]         = useState({});
   const [finishedGoods, setFinishedGoods] = useState([]);
+  const [rawMaterials,  setRawMaterials]  = useState([]);
   const [units,         setUnits]         = useState([]);
   const [warehouses,    setWarehouses]    = useState([]);
   const [loading,       setLoading]       = useState(true);
@@ -931,6 +994,7 @@ export function Planning() {
       if (plansRes?.data)          setPlans(plansRes.data);
       if (statsRes?.data)          setStats(statsRes.data);
       if (fgRes?.data)             setFinishedGoods(fgRes.data);
+      api.rawMaterials.getAll().then((r) => setRawMaterials(Array.isArray(r?.data) ? r.data : (r?.data?.items || []))).catch(() => {});
       if (bundleRes?.data?.units)  setUnits(bundleRes.data.units);
       if (bundleRes?.data?.warehouses) setWarehouses(bundleRes.data.warehouses);
     } catch (err) {
@@ -1205,13 +1269,14 @@ export function Planning() {
       {/* Modals */}
       <NewPlanningModal
         isOpen={isNewOpen} onClose={() => setIsNewOpen(false)}
-        finishedGoods={finishedGoods} units={units} warehouses={warehouses}
+        finishedGoods={finishedGoods} rawMaterials={rawMaterials} units={units} warehouses={warehouses}
         onCreated={(plan) => { fetchAll(); }}
       />
 
       <ReleaseModal
         isOpen={isReleaseOpen} onClose={() => setIsReleaseOpen(false)}
         plan={releasePlan}
+        warehouses={warehouses}
         onReleased={handleReleased}
       />
 

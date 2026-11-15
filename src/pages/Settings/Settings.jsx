@@ -33,6 +33,7 @@ import { StatusBadge } from '../../components/UI/StatusBadge';
 import { Modal } from '../../components/UI/Modal';
 import Icon from '../../components/UI/Icon';
 import SearchableSelect from '../../components/UI/SearchableSelect';
+import { DefectReasons } from './DefectReasons';
 import { api } from '../../services/api';
 import { UsersRoles } from './UsersRoles';
 import { ResetDataPanel } from './ResetDataPanel';
@@ -44,6 +45,37 @@ import {
   downloadFinishedGoodsTemplate,
   downloadSubSKUTemplate 
 } from '../../utils/csvTemplates';
+
+// Category picker: choose one, or type a new name to create it on the spot
+function CategoryField({ value, onChange, categories, setCategories, type }) {
+  const opts = categories
+    .filter((c) => !c.category_type || c.category_type === 'BOTH' || c.category_type === type || String(c.id) === String(value))
+    .map((c) => ({ value: String(c.id), label: c.category_name }));
+  const handle = async (val) => {
+    if (!val) { onChange(''); return; }
+    if (categories.some((c) => String(c.id) === String(val))) { onChange(String(val)); return; }
+    try { // new name typed -> create it
+      const res = await api.settings.saveCategory({ category_name: String(val).trim(), category_type: type });
+      const cat = res?.data;
+      if (cat?.id) {
+        setCategories((prev) => (prev.some((c) => String(c.id) === String(cat.id)) ? prev : [...prev, cat]));
+        onChange(String(cat.id));
+      }
+    } catch (err) {
+      alert('Could not create category: ' + err.message);
+    }
+  };
+  return (
+    <SearchableSelect
+      creatable
+      value={value ? String(value) : ''}
+      onChange={handle}
+      options={opts}
+      placeholder="Select or type a new category"
+      searchPlaceholder="Search or type a new category..."
+    />
+  );
+}
 
 export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
   const [localSubTab, setLocalSubTab] = useState('raw_materials');
@@ -107,7 +139,7 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
     id: null,
     rm_code: '',
     material_name: '',
-    unit_id: 1,
+    unit_id: 3, // PCS
     category_id: '',
     standard_rate: 0,
     minimum_stock: 0,
@@ -161,7 +193,7 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
     sub_part_name: '',
     brand_name: 'Somany',
     party_id: '',
-    unit_id: 1,
+    unit_id: 3, // PCS
     standard_rate: '',
     description: '',
     active: 1
@@ -248,7 +280,7 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
       id: null,
       rm_code: '',
       material_name: '',
-      unit_id: 1,
+      unit_id: 3, // PCS
       category_id: '',
       standard_rate: 0,
       minimum_stock: 0,
@@ -274,7 +306,7 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
       standard_rate: rm.standard_rate || 0,
       minimum_stock: rm.minimum_stock || 0,
       reorder_level: rm.reorder_level || 0,
-      maximum_stock: rm.maximum_stock || 0,
+      maximum_stock: Number(rm.maximum_stock) > 0 ? rm.maximum_stock : (rm.reorder_level || 0),
       hsn_code: rm.hsn_code || '',
       description: rm.description || '',
     });
@@ -357,7 +389,7 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
       selling_price: fg.selling_price || 0,
       minimum_stock: fg.minimum_stock || 0,
       reorder_level: fg.reorder_level || 0,
-      maximum_stock: fg.maximum_stock || 0,
+      maximum_stock: Number(fg.maximum_stock) > 0 ? fg.maximum_stock : (fg.reorder_level || 0),
       hsn_code: fg.hsn_code || '',
       description: fg.description || '',
     });
@@ -527,7 +559,7 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
       sub_part_name: '',
       brand_name: 'Somany',
       party_id: '',
-      unit_id: parentRm ? (parentRm.unit_id || 1) : 1,
+      unit_id: parentRm ? (parentRm.unit_id || 3) : 3,
       standard_rate: parentRm ? Number(parentRm.standard_rate || 0) : '',
       description: '',
       active: 1
@@ -543,7 +575,7 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
       sub_part_name: part.sub_part_name,
       brand_name: part.brand_name,
       party_id: part.party_id || '',
-      unit_id: part.unit_id || 1,
+      unit_id: part.unit_id || 3,
       standard_rate: part.standard_rate || '',
       description: part.description || '',
       active: part.active !== undefined ? Number(part.active) : 1
@@ -737,6 +769,7 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
     { header: 'Category', key: 'category_name' },
     { header: 'Stock Unit', key: 'unit_code', align: 'center' },
     { header: 'Standard Rate (₹)', key: 'standard_rate', align: 'right', render: (r) => <span className="font-mono text-slate-700">₹{Number(r).toFixed(2)}</span> },
+    { header: 'Max Level', key: 'maximum_stock', align: 'right', render: (v, r) => <span className="font-mono font-bold text-slate-800">{Number(v) > 0 ? Number(v) : Number(r.reorder_level || 0)} {r.unit_code}</span> },
     { header: 'Reorder Level', key: 'reorder_level', align: 'right', render: (v, r) => <span className="font-mono font-bold text-amber-700">{Number(v)} {r.unit_code}</span> },
     {
       header: 'Actions',
@@ -1505,6 +1538,7 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
 
       {/* 5. Users & Roles */}
       {subTab === 'users' && <UsersRoles />}
+      {subTab === 'defect_reasons' && <DefectReasons />}
 
       {/* 6. Company Profile */}
       {subTab === 'company' && company && (
@@ -1645,6 +1679,11 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
             />
           </div>
 
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Category</label>
+            <CategoryField value={rmForm.category_id} onChange={(v) => setRMForm((f) => ({ ...f, category_id: v }))} categories={categories} setCategories={setCategories} type="RM" />
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-700 font-bold mb-1">Stock Unit</label>
@@ -1683,6 +1722,17 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Max Stock Level</label>
+              <input
+                type="number"
+                min="0"
+                value={rmForm.maximum_stock}
+                onChange={(e) => setRMForm({ ...rmForm, maximum_stock: e.target.value })}
+                placeholder="Used for the Stock zone colours"
+                className="w-full bg-white rounded-xl px-3 py-2 text-slate-900 border border-slate-300 focus:ring-2 focus:ring-slate-900"
+              />
+            </div>
             <div>
               <label className="block text-slate-700 font-bold mb-1">Reorder Level Threshold</label>
               <input
@@ -1743,6 +1793,11 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
             />
           </div>
 
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Category</label>
+            <CategoryField value={fgForm.category_id} onChange={(v) => setFGForm((f) => ({ ...f, category_id: v }))} categories={categories} setCategories={setCategories} type="FG" />
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-700 font-bold mb-1">Selling Price (₹)</label>
@@ -1756,6 +1811,17 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
               />
             </div>
 
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Max Stock Level</label>
+              <input
+                type="number"
+                min="0"
+                value={fgForm.maximum_stock}
+                onChange={(e) => setFGForm({ ...fgForm, maximum_stock: e.target.value })}
+                placeholder="Used for the Stock zone colours"
+                className="w-full bg-white rounded-xl px-3 py-2 text-slate-900 border border-slate-300 focus:ring-2 focus:ring-slate-900"
+              />
+            </div>
             <div>
               <label className="block text-slate-700 font-bold mb-1">Reorder Level</label>
               <input
@@ -2302,7 +2368,7 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
             <div>
               <label className="block text-slate-700 font-bold mb-1">Unit of Measure</label>
               <select
-                value={subChildForm.unit_id || 1}
+                value={subChildForm.unit_id || 3}
                 onChange={(e) => setSubChildForm({ ...subChildForm, unit_id: Number(e.target.value) })}
                 className="w-full bg-white rounded-xl px-3 py-2 text-slate-900 border border-slate-300 font-semibold focus:ring-2 focus:ring-amber-600"
               >

@@ -17,7 +17,7 @@ export function Dashboard({ setActiveTab }) {
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      const rangeParam = dateRange.preset || 'THIS_MONTH';
+      const rangeParam = dateRange.preset || 'LAST_7_DAYS';
       const [res, pRes] = await Promise.all([
         api.dashboard.get(rangeParam),
         api.processes.getAll().catch(() => ({ data: [] }))

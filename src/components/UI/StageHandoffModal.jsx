@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { CheckCircle2, XCircle } from 'lucide-react';
 import { Modal } from './Modal';
 import Icon from './Icon';
 import SearchableSelect from './SearchableSelect';
@@ -50,7 +51,19 @@ export function StageHandoffModal({
   const [goodQty, setGoodQty] = useState(currentAvailable);
   const [rejQty, setRejQty] = useState(0);
   const [minorQty, setMinorQty] = useState(0);
+  const [reasonList, setReasonList] = useState(DEFECT_REASONS);
   const [rejReason, setRejReason] = useState(DEFECT_REASONS[0]);
+  // Defect reasons come from Settings → Defect Reasons (falls back to the built-in list)
+  useEffect(() => {
+    if (!isOpen) return;
+    api.settings.getBundle().then((res) => {
+      const names = (res?.data?.rejection_reasons || []).map((r) => r.reason_name).filter(Boolean);
+      if (names.length) {
+        setReasonList(names);
+        setRejReason((cur) => (names.includes(cur) ? cur : names[0]));
+      }
+    }).catch(() => {});
+  }, [isOpen]);
   const [rejWeightKg, setRejWeightKg] = useState('');
   const [returnStage, setReturnStage] = useState(stageKey);
   const [operatorName, setOperatorName] = useState('Supervisor / Operator');
@@ -206,7 +219,7 @@ export function StageHandoffModal({
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3">
             <label className="block text-[11px] font-bold text-emerald-900 mb-1">
-              ✓ Good Quantity (Passed)
+              <CheckCircle2 className="w-3.5 h-3.5 inline -mt-0.5 mr-1" />Good Quantity (Passed)
             </label>
             <input
               type="number"
@@ -222,7 +235,7 @@ export function StageHandoffModal({
 
           <div className="bg-rose-50/70 border border-rose-200 rounded-xl p-3">
             <label className="block text-[11px] font-bold text-rose-900 mb-1">
-              ✗ Total Rejection Qty
+              <XCircle className="w-3.5 h-3.5 inline -mt-0.5 mr-1" />Total Rejection Qty
             </label>
             <input
               type="number"
@@ -253,7 +266,7 @@ export function StageHandoffModal({
                 onChange={(e) => setRejReason(e.target.value)}
                 className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 text-slate-900"
               >
-                {DEFECT_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                {reasonList.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
             <div>
@@ -297,7 +310,7 @@ export function StageHandoffModal({
               buttonClassName="bg-white border border-indigo-300 rounded-xl px-3 py-2 text-slate-900 font-bold text-xs"
               options={warehouses.map((wh) => ({
                 value: String(wh.id),
-                label: `${wh.warehouse_name}${Number(wh.is_default) === 1 ? ' ★ Default' : ''}`,
+                label: `${wh.warehouse_name}${Number(wh.is_default) === 1 ? ' (Default)' : ''}`,
                 sublabel: wh.warehouse_code
               }))}
             />

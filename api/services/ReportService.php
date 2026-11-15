@@ -168,9 +168,10 @@ class ReportService {
                 SELECT pp.id, pp.planning_number, pp.planned_quantity, pp.released_quantity, 
                        (pp.planned_quantity - pp.released_quantity) as pending_quantity,
                        pp.priority, pp.status, pp.planning_date,
-                       fg.fg_code, fg.product_name, u.unit_code
+                       COALESCE(fg.fg_code, rm.rm_code) AS fg_code, COALESCE(fg.product_name, rm.material_name) AS product_name, u.unit_code
                 FROM production_planning pp
-                JOIN finished_goods fg ON pp.fg_id = fg.id
+                LEFT JOIN finished_goods fg ON pp.fg_id = fg.id
+                LEFT JOIN raw_materials rm ON pp.rm_id = rm.id
                 JOIN units u ON pp.unit_id = u.id
                 WHERE pp.status NOT IN ('COMPLETED', 'CANCELLED', 'FULLY_RELEASED')
                   AND (pp.planned_quantity - pp.released_quantity) > 0
@@ -193,13 +194,14 @@ class ReportService {
                        pr.release_date as planned_start_date,
                        pr.status,
                        pp.planning_number,
-                       fg.id as fg_id, fg.fg_code, fg.product_name, u.unit_code,
+                       fg.id as fg_id, COALESCE(fg.fg_code, rm.rm_code) AS fg_code, COALESCE(fg.product_name, rm.material_name) AS product_name, u.unit_code,
                        'In Production' as current_stage_name,
                        0 as completed_stages,
                        4 as total_stages
                 FROM planning_releases pr
                 JOIN production_planning pp ON pr.planning_id = pp.id
-                JOIN finished_goods fg ON pp.fg_id = fg.id
+                LEFT JOIN finished_goods fg ON pp.fg_id = fg.id
+                LEFT JOIN raw_materials rm ON pp.rm_id = rm.id
                 JOIN units u ON pp.unit_id = u.id
                 WHERE pr.status = 'ACTIVE'
                 ORDER BY pr.id DESC
