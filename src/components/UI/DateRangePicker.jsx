@@ -114,7 +114,13 @@ export function DateRangePicker({
 
       {/* Popover Calendar Dropdown */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 z-50 w-72 sm:w-80 bg-white border border-slate-200 rounded-2xl shadow-xl p-4 animate-in fade-in zoom-in-95 duration-150">
+        <>
+          {/* Mobile Backdrop to prevent clipping and handle outside tap cleanly */}
+          <div 
+            className="fixed inset-0 bg-slate-900/30 backdrop-blur-[2px] z-40 sm:hidden"
+            onClick={() => setIsOpen(false)}
+          />
+          <div className="fixed inset-x-3 top-20 sm:absolute sm:top-full sm:inset-x-auto sm:right-0 sm:mt-2 z-50 w-auto sm:w-80 max-w-[340px] sm:max-w-none mx-auto sm:mx-0 bg-white border border-slate-200 rounded-2xl shadow-2xl sm:shadow-xl p-4 animate-in fade-in zoom-in-95 duration-150">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3">
             <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
               <Icon name="calendar" size="xs" className="text-blue-600" ariaHidden={true} />
@@ -198,6 +204,7 @@ export function DateRangePicker({
             </button>
           </div>
         </div>
+        </>
       )}
     </div>
   );
