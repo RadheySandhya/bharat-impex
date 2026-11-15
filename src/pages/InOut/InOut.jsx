@@ -596,11 +596,11 @@ export function InOut() {
         </div>
 
         {/* Global Navigation Tabs */}
-        <div className="flex items-center gap-1.5 bg-slate-100/90 p-1 rounded-xl border border-slate-200 self-stretch md:self-auto overflow-x-auto">
+        <div className="flex items-center gap-1.5 bg-slate-100/90 p-1 rounded-xl border border-slate-200 self-stretch md:self-auto overflow-x-auto scrollbar-none">
           <button
             type="button"
             onClick={() => setActiveMainTab('sheet')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
               activeMainTab === 'sheet'
                 ? 'bg-white text-blue-700 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -613,7 +613,7 @@ export function InOut() {
           <button
             type="button"
             onClick={() => setActiveMainTab('history')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
               activeMainTab === 'history'
                 ? 'bg-white text-blue-700 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -626,7 +626,7 @@ export function InOut() {
           <button
             type="button"
             onClick={() => setActiveMainTab('parties')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
               activeMainTab === 'parties'
                 ? 'bg-white text-blue-700 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -639,7 +639,7 @@ export function InOut() {
           <button
             type="button"
             onClick={() => setActiveMainTab('tally_csv')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
               activeMainTab === 'tally_csv'
                 ? 'bg-white text-blue-700 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -655,156 +655,469 @@ export function InOut() {
       {activeMainTab === 'sheet' && (
         <div className="space-y-3">
           {/* Controls & Action Bar */}
-          <div className="bg-white border border-slate-200/90 rounded-2xl p-3.5 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-            {/* Filter buttons & Search */}
-            <div className="flex items-center gap-2 flex-wrap flex-1">
+          <div className="bg-white border border-slate-200/90 rounded-2xl p-3 sm:p-3.5 shadow-xs space-y-2.5">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
               {/* Type Filter Pills */}
-              <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs font-semibold">
+              <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs font-semibold shrink-0">
                 <button
                   type="button"
                   onClick={() => setSheetTypeFilter('ALL')}
-                  className={`px-2.5 py-1 rounded-md transition-colors ${
+                  className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
                     sheetTypeFilter === 'ALL' ? 'bg-white text-slate-800 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  All Rows ({rows.length})
+                  All ({rows.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setSheetTypeFilter('IN')}
-                  className={`px-2.5 py-1 rounded-md transition-colors flex items-center gap-1 ${
-                    sheetTypeFilter === 'IN' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-500 hover:text-emerald-700'
+                  className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                    sheetTypeFilter === 'IN' ? 'bg-emerald-600 text-white font-bold shadow-2xs' : 'text-slate-500 hover:text-emerald-700'
                   }`}
                 >
-                  <ArrowDownLeft className="w-3 h-3" />
+                  <ArrowDownLeft className="w-3.5 h-3.5" />
                   <span>IN ({sheetSummary.inCount})</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setSheetTypeFilter('OUT')}
-                  className={`px-2.5 py-1 rounded-md transition-colors flex items-center gap-1 ${
-                    sheetTypeFilter === 'OUT' ? 'bg-rose-600 text-white font-bold' : 'text-slate-500 hover:text-rose-700'
+                  className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                    sheetTypeFilter === 'OUT' ? 'bg-rose-600 text-white font-bold shadow-2xs' : 'text-slate-500 hover:text-rose-700'
                   }`}
                 >
-                  <ArrowUpRight className="w-3 h-3" />
+                  <ArrowUpRight className="w-3.5 h-3.5" />
                   <span>OUT ({sheetSummary.outCount})</span>
                 </button>
               </div>
 
               {/* Search Bar */}
-              <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <div className="relative flex-1 min-w-0">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   placeholder="Filter by Party, Item name, Code or Invoice..."
                   value={sheetSearch}
                   onChange={(e) => setSheetSearch(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                  className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-300 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
                 />
               </div>
-
-              {/* Default Godown for new rows */}
-              {warehouses.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5 max-w-full bg-amber-50 border border-amber-300 rounded-lg pl-2 pr-1 py-0.5">
-                  <Building2 className="w-3.5 h-3.5 text-amber-700" />
-                  <span className="text-[11px] font-bold text-amber-900 whitespace-nowrap">Default Godown</span>
-                  <select
-                    value={defaultWarehouseId}
-                    onChange={(e) => setDefaultWarehouseId(e.target.value)}
-                    className="min-w-0 max-w-full text-xs font-semibold bg-white border border-amber-200 rounded-md px-1.5 py-1 text-slate-900 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-                    title="New rows will use this godown"
-                  >
-                    {warehouses.map((w) => (
-                      <option key={w.id} value={w.id}>{w.warehouse_name}</option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!defaultWarehouseId) return;
-                      setRows((prev) => prev.map((r) => ({ ...r, warehouse_id: defaultWarehouseId })));
-                      setIsDirty(true);
-                      success(`All rows set to ${warehouseName(defaultWarehouseId)}.`);
-                    }}
-                    className="text-[10px] font-bold text-amber-800 hover:text-amber-950 hover:bg-amber-100 px-1.5 py-1 rounded cursor-pointer whitespace-nowrap"
-                    title="Apply this godown to every row in the sheet"
-                  >
-                    Apply to all
-                  </button>
-                </div>
-              )}
-
-              {/* Add New Party Quick Button */}
-              <button
-                type="button"
-                onClick={() => setIsPartyModalOpen(true)}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-300 cursor-pointer"
-                title="Create a new supplier/customer in party master"
-              >
-                <Plus className="w-3 h-3 text-blue-600" />
-                <span>+ New Party</span>
-              </button>
             </div>
 
-            {/* Row Modifiers and Save Button */}
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              <button
-                type="button"
-                onClick={() => handleAddRow('IN')}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300 shadow-2xs transition-colors cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ Add IN</span>
-              </button>
+            {/* Row Modifiers and Actions */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => handleAddRow('IN')}
+                  disabled={!canIn}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300 shadow-2xs transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add IN</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => handleAddRow('OUT')}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 text-xs font-bold border border-rose-300 shadow-2xs transition-colors cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ Add OUT</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => handleAddRow('OUT')}
+                  disabled={!canOut}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 text-xs font-bold border border-rose-300 shadow-2xs transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add OUT</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => handleAddMultipleRows(5, 'IN')}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold border border-slate-300 shadow-2xs transition-colors cursor-pointer"
-                title="Append 5 rows"
-              >
-                <Plus className="w-3.5 h-3.5 text-slate-500" />
-                <span>+ 5 Rows</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => handleAddMultipleRows(5, 'IN')}
+                  className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold border border-slate-300 shadow-2xs transition-colors cursor-pointer"
+                  title="Append 5 blank rows"
+                >
+                  <Plus className="w-3.5 h-3.5 text-slate-500" />
+                  <span>5 Rows</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={loadMasterData}
-                title="Refresh master data & stock levels"
-                className="p-1.5 rounded-xl bg-white hover:bg-slate-50 text-slate-600 border border-slate-300 shadow-2xs cursor-pointer"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`} />
-              </button>
+                {/* Default Godown for new rows */}
+                {warehouses.length > 0 && (
+                  <div className="flex items-center gap-1 bg-amber-50 border border-amber-300 rounded-xl px-2 py-1">
+                    <Building2 className="w-3 h-3 text-amber-700 shrink-0" />
+                    <span className="text-[10px] font-bold text-amber-900 hidden sm:inline">Godown:</span>
+                    <select
+                      value={defaultWarehouseId}
+                      onChange={(e) => setDefaultWarehouseId(e.target.value)}
+                      className="text-xs font-semibold bg-transparent text-amber-950 cursor-pointer focus:outline-none"
+                      title="Default godown for new entries"
+                    >
+                      {warehouses.map((w) => (
+                        <option key={w.id} value={w.id}>{w.warehouse_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
+                {/* Add New Party Quick Button */}
+                <button
+                  type="button"
+                  onClick={() => setIsPartyModalOpen(true)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-300 cursor-pointer"
+                  title="Create a new supplier/customer in party master"
+                >
+                  <Plus className="w-3 h-3 text-blue-600" />
+                  <span>Party</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={loadMasterData}
+                  title="Refresh master data & stock levels"
+                  className="p-1.5 rounded-xl bg-white hover:bg-slate-50 text-slate-600 border border-slate-300 shadow-2xs cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`} />
+                </button>
+              </div>
+
+              {/* Save All Transactions Button */}
               <button
                 type="button"
                 onClick={handleSaveAll}
                 disabled={saving}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-xs transition-all cursor-pointer ${
+                className={`w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-xs transition-all cursor-pointer ${
                   isDirty 
                     ? 'bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-500/20 shadow-md' 
                     : 'bg-slate-900 hover:bg-slate-800'
                 }`}
               >
                 <Save className={`w-3.5 h-3.5 ${saving ? 'animate-spin' : ''}`} />
-                <span>{saving ? 'Recording Stock...' : 'Save All Transactions'}</span>
+                <span>{saving ? 'Recording Stock...' : `Save All Transactions (${rows.length})`}</span>
               </button>
             </div>
           </div>
 
-          {/* SPREADSHEET TABLE GRID */}
-          <div className="bg-white border border-slate-300 rounded-2xl shadow-xs overflow-hidden">
+          {/* ========================================================================= */}
+          {/* MOBILE VIEW (md:hidden): Clean Touch Cards for In/Out Rows */}
+          {/* ========================================================================= */}
+          <div className="md:hidden space-y-3">
+            {displayedRows.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-400">
+                <ArrowLeftRight className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+                <p className="font-bold text-slate-700 text-xs">No entries match your search</p>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Tap "Add IN" or "Add OUT" above to add transactions.
+                </p>
+              </div>
+            ) : (
+              displayedRows.map((row, dIdx) => {
+                const originalIdx = row.originalIndex;
+                const isOut = row.type === 'OUT';
+                const candidateItems = row.material_type === 'RM' ? rawMaterials : finishedGoods;
+                const itemObj = candidateItems.find((it) => String(it.id) === String(row.item_id));
+                const amount = (parseFloat(row.quantity || 0) * parseFloat(row.rate || 0)).toFixed(2);
+                const godownQty = row.sub_child_part_id ? null : getGodownQty(itemObj, row.warehouse_id);
+                const shownStock = godownQty !== null ? godownQty : (parseFloat(row.current_stock) || 0);
+                const isLowStock = isOut && shownStock < parseFloat(row.quantity || 0);
+
+                return (
+                  <div
+                    key={`m_card_${row.row_id}`}
+                    className={`bg-white rounded-2xl border transition-all shadow-xs overflow-hidden ${
+                      isOut ? 'border-rose-200' : 'border-emerald-200'
+                    }`}
+                    style={{ borderLeft: `5px solid ${isOut ? '#f43f5e' : '#10b981'}` }}
+                  >
+                    {/* Header: #, Type Switcher Pill, Duplicate & Delete */}
+                    <div className={`p-2.5 flex items-center justify-between border-b ${
+                      isOut ? 'bg-rose-50/70 border-rose-100' : 'bg-emerald-50/70 border-emerald-100'
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-black font-mono text-white ${
+                          isOut ? 'bg-rose-600' : 'bg-emerald-600'
+                        }`}>
+                          {dIdx + 1}
+                        </span>
+
+                        <div className="flex items-center bg-white p-0.5 rounded-lg border border-slate-200 shadow-2xs">
+                          <button
+                            type="button"
+                            onClick={() => handleCellChange(originalIdx, 'type', 'IN')}
+                            disabled={!canIn}
+                            className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold flex items-center gap-0.5 cursor-pointer transition-all ${
+                              !isOut 
+                                ? 'bg-emerald-600 text-white shadow-2xs' 
+                                : 'text-slate-500 hover:text-emerald-700'
+                            }`}
+                          >
+                            <ArrowDownLeft className="w-3 h-3" />
+                            <span>IN (Purchase)</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCellChange(originalIdx, 'type', 'OUT')}
+                            disabled={!canOut}
+                            className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold flex items-center gap-0.5 cursor-pointer transition-all ${
+                              isOut 
+                                ? 'bg-rose-600 text-white shadow-2xs' 
+                                : 'text-slate-500 hover:text-rose-700'
+                            }`}
+                          >
+                            <ArrowUpRight className="w-3 h-3" />
+                            <span>OUT (Sale)</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleDuplicateRow(originalIdx)}
+                          title="Duplicate Row"
+                          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-white cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteRow(originalIdx)}
+                          title="Delete Row"
+                          className="p-1 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Card Form Body */}
+                    <div className="p-3 space-y-2.5">
+                      {/* 1. Party */}
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">
+                          Party Name (Supplier / Customer)
+                        </label>
+                        <SearchableSelect
+                          creatable
+                          value={row.party_name || ''}
+                          onChange={(val) => handleCellChange(originalIdx, 'party_name', val || '')}
+                          placeholder="Select or type party..."
+                          searchPlaceholder="Search party..."
+                          className="w-full"
+                          buttonClassName={`text-xs font-semibold rounded-xl px-2.5 py-1.5 bg-slate-50 hover:bg-white border transition-all ${
+                            isOut ? 'border-rose-200' : 'border-emerald-200'
+                          }`}
+                          options={parties.map((p) => ({ value: p.party_name, label: p.party_name, badge: p.party_type }))}
+                        />
+                      </div>
+
+                      {/* 2. Item & Category */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                            Item & Category
+                          </label>
+                          <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-md text-[9.5px] font-bold">
+                            <button
+                              type="button"
+                              onClick={() => handleCellChange(originalIdx, 'material_type', 'RM')}
+                              className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                                row.material_type === 'RM' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500'
+                              }`}
+                            >
+                              Child Part (RM)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCellChange(originalIdx, 'material_type', 'FG')}
+                              className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                                row.material_type === 'FG' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500'
+                              }`}
+                            >
+                              Finished Good (FG)
+                            </button>
+                          </div>
+                        </div>
+
+                        <SearchableSelect
+                          value={row.sub_sku_id ? `sub_${row.sub_sku_id}` : (row.item_id || '')}
+                          onChange={(val) => handleCellChange(originalIdx, 'item_selection', val)}
+                          placeholder="-- Choose Item --"
+                          searchPlaceholder="Type name or code..."
+                          className="w-full"
+                          buttonClassName="text-xs font-semibold rounded-xl px-2.5 py-1.5 bg-slate-50 hover:bg-white border border-slate-200"
+                          options={row.material_type === 'RM' ? (
+                            rawMaterials.map((item) => ({
+                              value: item.id,
+                              label: item.item_name,
+                              sublabel: item.item_code,
+                              badge: item.unit_code
+                            }))
+                          ) : (
+                            [
+                              ...subSkus.map((sub) => ({
+                                value: `sub_${sub.sub_sku_id}`,
+                                label: `${sub.sub_sku_name} (${sub.brand_name})`,
+                                sublabel: sub.sub_sku_code,
+                                badge: sub.unit_code || 'PCS'
+                              })),
+                              ...finishedGoods.map((item) => ({
+                                value: item.id,
+                                label: item.item_name,
+                                sublabel: item.item_code,
+                                badge: item.unit_code
+                              }))
+                            ]
+                          )}
+                        />
+
+                        {/* Variant / Stock bar */}
+                        <div className="flex items-center justify-between text-[10px] pt-0.5">
+                          {row.material_type === 'RM' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (itemObj && itemObj.variants?.length > 0) {
+                                  setVariantModalState({
+                                    isOpen: true,
+                                    rowIndex: originalIdx,
+                                    item: itemObj,
+                                    variants: itemObj.variants,
+                                    selectedVariantId: row.sub_child_part_id
+                                  });
+                                }
+                              }}
+                              className="flex items-center gap-1 font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md cursor-pointer truncate max-w-[65%]"
+                            >
+                              <Layers className="w-3 h-3 text-blue-500 shrink-0" />
+                              <span className="truncate">
+                                {row.sub_child_part_id ? `${row.sub_part_name} (${row.sub_part_brand})` : (itemObj?.variants?.length ? `Select Brand (${itemObj.variants.length})` : 'Standard')}
+                              </span>
+                            </button>
+                          )}
+                          {row.material_type === 'FG' && (
+                            <span className="text-[10px] text-slate-500 font-mono">
+                              Code: {row.item_code || '—'}
+                            </span>
+                          )}
+
+                          <span className={`px-2 py-0.5 rounded-md font-bold text-[9.5px] border ${
+                            isLowStock 
+                              ? 'bg-rose-100 text-rose-800 border-rose-300' 
+                              : 'bg-slate-100 text-slate-700 border-slate-200'
+                          }`}>
+                            Live Stock: {shownStock} {row.unit_code || 'PCS'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 3. Godown & Date (2 columns) */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">
+                            Godown
+                          </label>
+                          <select
+                            value={row.warehouse_id}
+                            onChange={(e) => handleCellChange(originalIdx, 'warehouse_id', e.target.value)}
+                            className="w-full text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-slate-800 cursor-pointer"
+                          >
+                            <option value="">-- Godown --</option>
+                            {warehouses.map((w) => (
+                              <option key={w.id} value={w.id}>{w.warehouse_name}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">
+                            Date
+                          </label>
+                          <input
+                            type="date"
+                            value={row.date}
+                            onChange={(e) => handleCellChange(originalIdx, 'date', e.target.value)}
+                            className="w-full text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-slate-800"
+                          />
+                        </div>
+                      </div>
+
+                      {/* 4. Financials: Qty, Rate, Amount (3 columns) */}
+                      <div className="grid grid-cols-3 gap-2 bg-slate-50/80 p-2 rounded-xl border border-slate-200/80">
+                        <div>
+                          <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">
+                            Qty ({row.unit_code || 'PCS'})
+                          </label>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0.001"
+                            value={row.quantity}
+                            onChange={(e) => handleCellChange(originalIdx, 'quantity', e.target.value)}
+                            className={`w-full text-xs font-black rounded-lg px-2 py-1.5 border text-right tabular-nums ${
+                              isLowStock 
+                                ? 'bg-rose-50 border-rose-300 text-rose-800' 
+                                : 'bg-white border-slate-200 text-slate-900'
+                            }`}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">
+                            Rate (₹)
+                          </label>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={row.rate}
+                            onChange={(e) => handleCellChange(originalIdx, 'rate', e.target.value)}
+                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-900 text-right tabular-nums"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5 text-right">
+                            Total
+                          </label>
+                          <div className="h-[28px] flex items-center justify-end font-mono font-black text-xs text-slate-900 tabular-nums">
+                            ₹{Number(amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 5. Invoice & Remarks (2 columns) */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          placeholder="Invoice / Challan #"
+                          value={row.invoice_number || ''}
+                          onChange={(e) => handleCellChange(originalIdx, 'invoice_number', e.target.value)}
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-700 placeholder:text-slate-400 font-mono"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Remarks / Note..."
+                          value={row.remarks || ''}
+                          onChange={(e) => handleCellChange(originalIdx, 'remarks', e.target.value)}
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-700 placeholder:text-slate-400"
+                        />
+                      </div>
+
+                      {/* Low Stock Warning */}
+                      {isLowStock && (
+                        <div className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-1 rounded-md border border-rose-200 flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>Warning: Stock in godown is only {shownStock} {row.unit_code}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* ========================================================================= */}
+          {/* DESKTOP SPREADSHEET TABLE GRID (hidden md:block) with data-no-cards */}
+          {/* ========================================================================= */}
+          <div className="hidden md:block bg-white border border-slate-300 rounded-2xl shadow-xs overflow-hidden">
             <div className="overflow-x-auto min-h-[380px] max-h-[640px] scrollbar-thin pb-28">
-              <table className="w-full text-left border-collapse text-xs">
+              <table className="w-full text-left border-collapse text-xs" data-no-cards>
                 {/* Header Row */}
                 <thead className="sticky top-0 z-20 shadow-xs select-none">
                   <tr className="text-[11px] font-bold border-b-2 border-slate-300 divide-x divide-slate-300">
@@ -1428,10 +1741,107 @@ export function InOut() {
             </button>
           </div>
 
-          {/* History Data Table */}
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+          {/* Mobile View (md:hidden): Clean Touch History Cards */}
+          <div className="md:hidden space-y-2.5">
+            {historyLoading ? (
+              <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-400">
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-blue-600 mb-2" />
+                <p className="font-semibold text-xs">Loading In / Out transactions...</p>
+              </div>
+            ) : historyRecords.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-400">
+                <FileText className="w-6 h-6 mx-auto text-slate-300 mb-2" />
+                <p className="font-bold text-xs text-slate-600">No transactions recorded yet</p>
+                <p className="text-[11px] text-slate-400">
+                  Use the Spreadsheet Entry tab to record your purchases or sales.
+                </p>
+              </div>
+            ) : (
+              historyRecords.map((item, idx) => {
+                const isIn = item.transaction_type === 'IN';
+                return (
+                  <div
+                    key={`m_hist_${item.transaction_type}_${item.id}_${idx}`}
+                    className={`bg-white rounded-2xl border p-3 space-y-2 shadow-2xs ${
+                      isIn ? 'border-emerald-200' : 'border-rose-200'
+                    }`}
+                    style={{ borderLeft: `4px solid ${isIn ? '#10b981' : '#f43f5e'}` }}
+                  >
+                    {/* Header: Date + Type Pill + Amount */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
+                          isIn
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : 'bg-rose-100 text-rose-800 border border-rose-300'
+                        }`}>
+                          {isIn ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
+                          <span>{isIn ? 'IN (Purchase)' : 'OUT (Sale)'}</span>
+                        </span>
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          {item.transaction_date}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-mono font-bold text-xs text-slate-900">
+                          ₹{parseFloat(item.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Party Name */}
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                      <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="truncate">{item.party_name || 'Direct / Unknown'}</span>
+                    </div>
+
+                    {/* Item details */}
+                    <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-xs">
+                      <div className="font-semibold text-slate-800 truncate">{item.item_name}</div>
+                      <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500 font-mono">
+                        <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 font-bold text-slate-700">[{item.item_code}]</span>
+                        <span>{item.material_type === 'RM' ? 'Child Part' : 'Finished Good'}</span>
+                        {item.source && (
+                          <span className="ml-auto text-[9.5px] font-medium bg-slate-200/70 text-slate-600 px-1.5 py-0.5 rounded">
+                            {item.source}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Footer stats: Qty & Godown & Invoice */}
+                    <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 flex-wrap gap-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-900 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                          <Building2 className="w-3 h-3 text-amber-700" />
+                          <span>{item.warehouse_name || warehouseName(item.warehouse_id) || 'Godown'}</span>
+                        </span>
+                        {item.invoice_number && (
+                          <span className="text-[10px] font-mono text-slate-500">
+                            Inv: {item.invoice_number}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-baseline gap-1 font-mono">
+                        <span className="font-black text-sm text-slate-900">
+                          {parseFloat(item.quantity).toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                        </span>
+                        <span className="text-[10px] font-semibold text-slate-500">{item.unit_code}</span>
+                        {parseFloat(item.rate || 0) > 0 && (
+                          <span className="text-[10px] text-slate-400">@ ₹{parseFloat(item.rate).toFixed(2)}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Desktop History Data Table (hidden md:block) */}
+          <div className="hidden md:block bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
+              <table className="w-full text-left text-xs border-collapse" data-no-cards>
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
                     <th className="p-3">Date</th>
@@ -1568,8 +1978,48 @@ export function InOut() {
             }}
           />
 
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
-            <table className="w-full text-left text-xs border-collapse">
+          {/* Mobile View (md:hidden): Clean Touch Party Cards */}
+          <div className="md:hidden space-y-2">
+            {parties.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-400">
+                <p className="font-bold text-xs text-slate-600">No parties created yet</p>
+                <p className="text-[11px] text-slate-400 mt-1">Tap "+ Add New Party" above to register a party.</p>
+              </div>
+            ) : (
+              parties.map((p, idx) => (
+                <div key={p.id || idx} className="bg-white rounded-xl border border-slate-200 p-3 shadow-2xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900">
+                      <Building2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span>{p.party_name}</span>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-[9.5px] font-extrabold ${
+                      p.party_type === 'SUPPLIER'
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                        : p.party_type === 'CUSTOMER'
+                        ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                        : 'bg-purple-100 text-purple-800 border border-purple-200'
+                    }`}>
+                      {p.party_type}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px] text-slate-600 font-mono">
+                    {p.phone && <span>📞 {p.phone}</span>}
+                    {p.gstin && <span>GST: {p.gstin}</span>}
+                  </div>
+                  {p.address && (
+                    <p className="text-[10.5px] text-slate-500 line-clamp-2">
+                      {p.address}
+                    </p>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Desktop Party Master Table (hidden md:block) */}
+          <div className="hidden md:block bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+            <table className="w-full text-left text-xs border-collapse" data-no-cards>
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
                   <th className="p-3 w-12 text-center">#</th>
