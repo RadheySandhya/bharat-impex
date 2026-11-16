@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useLiveRefresh } from '../../utils/liveRefresh';
 import { 
   FileSpreadsheet, 
   Search, 
@@ -130,6 +131,7 @@ export function SKUTrackingSheet() {
   const [activeTab, setActiveTab] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 768 ? 'mobile_cards' : 'simple'));
   const { hasPermission, canStage } = useAuth();
   const [rejTracker, setRejTracker] = useState(null); // { row, stage }
+  const stagesRef = useRef(null);
   const [stagePop, setStagePop] = useState(null); // `${rowId}|${stageKey}` pinned stage details (Simple view)
   useEffect(() => {
     if (!stagePop) return undefined;
@@ -322,8 +324,8 @@ export function SKUTrackingSheet() {
     };
   };
 
-  const loadSKUData = async (activeStages) => {
-    setLoading(true);
+  const loadSKUData = async (activeStages, silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const relRes = await api.planning.getReleases();
       const releases = relRes?.data || [];
@@ -1025,6 +1027,10 @@ export function SKUTrackingSheet() {
     if (selectedStageFilter === 'ALL') return true;
     return selectedStageFilter === stageKey;
   };
+
+  // Live sync: fresh batches from the server every 10 s (silent)
+  stagesRef.current = stages;
+  useLiveRefresh((silent) => loadSKUData(stagesRef.current, silent));
 
   // ── Simple view: one card per batch, stages as a single readable strip ──
   const renderSimpleView = () => {

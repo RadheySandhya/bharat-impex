@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useLiveRefresh } from '../../utils/liveRefresh';
 import { CheckCircle2, Zap } from 'lucide-react';
 import Icon from '../../components/UI/Icon';
 import { StatusBadge } from '../../components/UI/StatusBadge';
@@ -982,8 +983,8 @@ export function Planning() {
   const [isKittingOpen, setIsKittingOpen] = useState(false);
   const [kittingBatch,  setKittingBatch]  = useState(null);
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
+  const fetchAll = useCallback(async (silent = false) => {
+    if (silent !== true) setLoading(true);
     try {
       const [plansRes, statsRes, fgRes, bundleRes] = await Promise.all([
         api.planning.getAll(),
@@ -1003,6 +1004,7 @@ export function Planning() {
       setLoading(false);
     }
   }, []);
+  useLiveRefresh((silent) => fetchAll(silent));
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 

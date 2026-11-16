@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useLiveRefresh } from '../../utils/liveRefresh';
 import {
   ShieldAlert,
   Search,
@@ -122,8 +123,8 @@ export function Rejections() {
     }
   };
 
-  const fetchLots = async () => {
-    setLotsLoading(true);
+  const fetchLots = async (silent = false) => {
+    if (!silent) setLotsLoading(true);
     try {
       const res = await api.rejections.getLots({ status: 'ALL', from_date: dateRange.from, to_date: dateRange.to });
       setLots((res?.data || []).filter((l) => l.status !== 'CANCELLED'));
@@ -136,6 +137,7 @@ export function Rejections() {
 
   useEffect(() => { fetchMasters(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { fetchLots(); }, [dateRange.from, dateRange.to]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLiveRefresh((silent) => fetchLots(silent));
 
   // Same stage keys as the SKU Tracking sheet
   const stages = useMemo(() => {

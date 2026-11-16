@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useLiveRefresh } from '../../utils/liveRefresh';
 import { 
   FileSpreadsheet, 
   Search, 
@@ -143,8 +144,8 @@ export function IMSTriNagarMaster() {
     }
   };
 
-  const fetchMasterData = async () => {
-    setLoading(true);
+  const fetchMasterData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await api.stock.getImsMaster({
         start_date: dateRange.from,
@@ -164,6 +165,7 @@ export function IMSTriNagarMaster() {
   useEffect(() => {
     fetchMasterData();
   }, [dateRange.from, dateRange.to, selectedStockType]);
+  useLiveRefresh((silent) => fetchMasterData(silent));
 
   // Capture Today's Snapshot
   const handleCaptureSnapshot = async () => {

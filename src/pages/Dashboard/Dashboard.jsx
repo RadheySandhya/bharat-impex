@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLiveRefresh } from '../../utils/liveRefresh';
 import Icon from '../../components/UI/Icon';
 import { KPICard } from '../../components/UI/KPICard';
 import { StatusBadge } from '../../components/UI/StatusBadge';
@@ -14,8 +15,8 @@ export function Dashboard({ setActiveTab }) {
 
   const [processes, setProcesses] = useState([]);
 
-  const fetchDashboardData = async () => {
-    setLoading(true);
+  const fetchDashboardData = async (silent = false) => {
+    if (silent !== true) setLoading(true);
     try {
       const rangeParam = dateRange.preset || 'LAST_7_DAYS';
       const [res, pRes] = await Promise.all([
@@ -34,6 +35,7 @@ export function Dashboard({ setActiveTab }) {
       setLoading(false);
     }
   };
+  useLiveRefresh((silent) => fetchDashboardData(silent));
 
   useEffect(() => {
     fetchDashboardData();
