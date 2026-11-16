@@ -96,12 +96,65 @@ export function StockReconciliation({ warehouses = [] }) {
         </button>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+      {/* Phones: one small card per item; tap to see its entries */}
+      <div className="md:hidden space-y-2">
+        {data && <div className="text-[11px] text-slate-500 px-1">{data.from_date} to {data.to_date} · Opening + In − Out = Closing</div>}
+        {loading && <div className="p-6 text-center text-slate-400 text-sm"><Loader2 className="w-4 h-4 animate-spin inline" /> Loading…</div>}
+        {!loading && items.length === 0 && <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center text-slate-400 text-sm">No stock movement for this period.</div>}
+        {!loading && items.map((r) => {
+          const k = `${r.material_type}-${r.material_id}`;
+          const isOpen = open === k;
+          return (
+            <div key={`m-${k}`} className="bg-white border border-slate-200 rounded-xl">
+              <button type="button" onClick={() => toggle(r)} className="w-full text-left p-3">
+                <div className="flex items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-semibold text-slate-900 truncate">{r.material_name}</div>
+                    <div className="text-[10.5px] text-slate-500 font-mono">{r.material_code} · {TYPE[r.material_type] || r.material_type}</div>
+                  </div>
+                  <ChevronRight className={`w-4 h-4 text-slate-400 mt-0.5 transition-transform ${isOpen ? 'rotate-90 text-blue-600' : ''}`} />
+                </div>
+                <div className="grid grid-cols-4 gap-1 mt-2 text-center">
+                  {[['Opening', fmt(r.opening), 'text-slate-800'], ['In', r.qty_in ? `+${fmt(r.qty_in)}` : '0', 'text-emerald-700'],
+                    ['Out', r.qty_out ? `−${fmt(r.qty_out)}` : '0', 'text-rose-700'], ['Closing', fmt(r.closing), r.closing < 0 ? 'text-rose-600' : 'text-slate-900']].map(([l, v, c]) => (
+                    <div key={l} className="bg-slate-50 rounded-lg py-1">
+                      <div className="text-[9.5px] text-slate-500 font-semibold uppercase">{l}</div>
+                      <div className={`text-[12.5px] font-bold tabular-nums ${c}`}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </button>
+              {isOpen && (
+                <div className="border-t border-slate-100 px-3 py-2 space-y-1.5">
+                  {!log[k] ? <div className="text-[12px] text-slate-400"><Loader2 className="w-3.5 h-3.5 animate-spin inline" /> Loading…</div>
+                    : log[k].length === 0 ? <div className="text-[12px] text-slate-400">No entries in this period.</div>
+                    : (() => { let bal = r.opening; return log[k].map((e) => {
+                        bal += Number(e.quantity_in || 0) - Number(e.quantity_out || 0);
+                        const inQ = Number(e.quantity_in || 0), outQ = Number(e.quantity_out || 0);
+                        return (
+                          <div key={e.id} className="flex items-center gap-2 text-[11.5px]">
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold text-slate-800 truncate">{TX_LABEL[e.transaction_type] || e.transaction_type}</div>
+                              <div className="text-[10.5px] text-slate-500 truncate">{e.transaction_date} · {e.reference_number || e.transaction_id}</div>
+                            </div>
+                            <div className={`font-bold tabular-nums ${inQ ? 'text-emerald-700' : 'text-rose-700'}`}>{inQ ? `+${fmt(inQ)}` : `−${fmt(outQ)}`}</div>
+                            <div className="w-14 text-right tabular-nums text-slate-500">{fmt(bal)}</div>
+                          </div>
+                        );
+                      }); })()}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="hidden md:block bg-white border border-slate-200 rounded-2xl overflow-hidden">
         <div className="px-4 py-2.5 text-[11.5px] text-slate-500 border-b border-slate-100">
           {data ? <>Period <b className="text-slate-800">{data.from_date}</b> to <b className="text-slate-800">{data.to_date}</b> · Opening + In − Out = Closing · click an item to see every entry</> : 'Loading…'}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="w-full text-xs" data-no-cards>
             <thead>
               <tr className="text-[10.5px] font-semibold uppercase text-slate-500 bg-slate-50 border-b border-slate-200">
                 <th className="p-2.5 w-6" />

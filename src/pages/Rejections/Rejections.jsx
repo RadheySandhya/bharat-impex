@@ -11,7 +11,8 @@ import {
   LayoutGrid,
   List,
   AlertCircle,
-  ChevronRight
+  ChevronRight,
+  MapPin
 } from 'lucide-react';
 import Icon from '../../components/UI/Icon';
 import { DateRangePicker } from '../../components/UI/DateRangePicker';
@@ -450,7 +451,7 @@ export function Rejections() {
                     </div>
                     {/* Stage where rejected */}
                     <div className="text-[9.5px] text-slate-400 font-sans truncate mt-0.5" title={g.source_stage_name}>
-                      📍 {g.source_stage_name || '—'}
+                      <MapPin className="w-3 h-3 inline -mt-0.5 mr-0.5" />{g.source_stage_name || '—'}
                     </div>
                   </div>
 
@@ -505,7 +506,7 @@ export function Rejections() {
                       <div className="flex items-center gap-2 mt-0.5 text-[10.5px]">
                         <span className="font-mono text-slate-500 font-semibold">#{g.batch_no}</span>
                         <span className="text-slate-300">·</span>
-                        <span className="text-slate-500 truncate">📍 {g.source_stage_name}</span>
+                        <span className="text-slate-500 truncate"><MapPin className="w-3 h-3 inline -mt-0.5 mr-0.5" />{g.source_stage_name}</span>
                       </div>
                     </div>
                     <span className="text-[10px] text-slate-400 font-medium shrink-0">

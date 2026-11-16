@@ -25,7 +25,7 @@ import {
   Check,
   ChevronRight,
   ChevronDown,
-  Info, X } from 'lucide-react';
+  Info, X, Phone } from 'lucide-react';
 import Icon from '../../components/UI/Icon';
 import Modal from '../../components/UI/Modal';
 import SearchableSelect from '../../components/UI/SearchableSelect';
@@ -2004,7 +2004,7 @@ export function InOut() {
                     </span>
                   </div>
                   <div className="flex items-center gap-3 text-[11px] text-slate-600 font-mono">
-                    {p.phone && <span>📞 {p.phone}</span>}
+                    {p.phone && <span className="inline-flex items-center gap-1"><Phone className="w-3 h-3" />{p.phone}</span>}
                     {p.gstin && <span>GST: {p.gstin}</span>}
                   </div>
                   {p.address && (

@@ -135,3 +135,13 @@ body.bi-app kbd {
 @media (max-width: 1023px) {
   body.bi-app main { padding-bottom: 28px !important; }
 }
+
+/* ── Phones: buttons keep their natural size (shared layer forced 40px on every button/chip) ── */
+@media (max-width: 767px) {
+  body.bi-app button, body.bi-app .btn, body.bi-app a.btn { min-height: 0; }
+  /* real form controls stay finger-friendly; 16px text stops iOS zoom */
+  body.bi-app input:not([type=checkbox]):not([type=radio]), body.bi-app select { min-height: 40px; }
+  body.bi-app main { padding-left: 12px !important; padding-right: 12px !important; }
+  body.bi-app main h1 { font-size: 18px !important; }
+  body.bi-app main .p-5 { padding: 14px !important; }
+}
