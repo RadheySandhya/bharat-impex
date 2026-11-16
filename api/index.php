@@ -29,6 +29,8 @@ require_once __DIR__ . '/services/AuditService.php';
 require_once __DIR__ . '/services/PermissionService.php';
 require_once __DIR__ . '/services/InventoryService.php';
 require_once __DIR__ . '/services/BOMService.php';
+require_once __DIR__ . '/services/SubChildStockService.php';
+require_once __DIR__ . '/services/SubSkuStockService.php';
 require_once __DIR__ . '/services/ProductionService.php';
 require_once __DIR__ . '/services/ImportService.php';
 require_once __DIR__ . '/services/ReportService.php';
@@ -68,7 +70,16 @@ if ($apiPos !== false) {
 try {
     // Keep stock.available_quantity consistent on schemas where it is a plain column
     if ($route !== '' && $route !== 'health') {
+        InventoryService::ensureMasterData();
         InventoryService::healStockTable();
+        // Variant (sub-child part) godown stock tables — created before any transaction opens
+        if (preg_match('#^(production/|planning|in-out|sub-child-parts|stock/ims-master|bom)#', $route)) {
+            SubChildStockService::ensureSchema();
+        }
+        // OEM brand (Sub-SKU) godown stock tables + planning/purchase brand columns
+        if (preg_match('#^(production/|planning|in-out|sub-skus|stock/ims-master|sales)#', $route)) {
+            SubSkuStockService::ensureSchema();
+        }
     }
 
     // Role / user permission check for the requested endpoint (admins pass everything)
@@ -377,6 +388,10 @@ try {
         case 'sub-skus/bulk-import':
             if ($method === 'POST') SubSKUController::bulkImport();
             break;
+        case 'sub-skus/stock':
+            if ($method === 'GET') SubSKUController::stock();
+            elseif ($method === 'POST') SubSKUController::updateStock();
+            break;
 
         // Sub-Child Parts (Component Varieties & Customer Mappings)
         case 'sub-child-parts':
@@ -386,6 +401,10 @@ try {
             break;
         case 'sub-child-parts/delete':
             if ($method === 'POST') SubChildPartController::delete();
+            break;
+        case 'sub-child-parts/stock':
+            if ($method === 'GET') SubChildPartController::stock();
+            elseif ($method === 'POST') SubChildPartController::updateStock();
             break;
 
         // Rejection Tracking (Minor Rework / Furnace) & Rejection Process Routes

@@ -359,6 +359,8 @@ class PermissionService {
             'sub-skus/bulk-import'         => ['*' => ['masters.edit']],
             'sub-child-parts'              => ['POST' => ['masters.edit'], 'DELETE' => ['masters.edit']],
             'sub-child-parts/delete'       => ['*' => ['masters.edit']],
+            'sub-skus/stock'               => ['POST' => ['inventory.opening', 'inventory.adjust', 'masters.edit']],
+            'sub-child-parts/stock'        =>['POST' => ['inventory.opening', 'inventory.adjust', 'masters.edit']],
             'mappings'                     => ['GET' => ['in_out.view'], 'POST' => ['in_out.tally_import'], 'DELETE' => ['in_out.tally_import']],
             'reports/stage-efficiency'     => ['*' => ['reports.view']],
             'reports/sku-traceability'     => ['*' => ['reports.view']],

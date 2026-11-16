@@ -317,6 +317,8 @@ export function SKUTrackingSheet() {
       fg_id: rel.fg_id,
       rm_deducted: Boolean(rel.rm_deducted),
       item_name: (rel.product_name || 'UNNAMED PRODUCT').toUpperCase(),
+      oem_brand: rel.oem_brand || null,
+      sub_sku_name: rel.sub_sku_name || null,
       qty_recd_casting: qty,
       avg_weight: null, // entered by the user
       stages: initialStages,
@@ -394,6 +396,8 @@ export function SKUTrackingSheet() {
             fg_id: rel.fg_id || existing.fg_id,
             rm_deducted: Boolean(rel.rm_deducted !== undefined ? rel.rm_deducted : existing.rm_deducted),
             item_name: (rel.product_name || existing.item_name).toUpperCase(),
+            oem_brand: rel.oem_brand || null,
+            sub_sku_name: rel.sub_sku_name || null,
             qty_recd_casting: qty,
             avg_weight: Number(existing.avg_weight) > 0 ? Number(existing.avg_weight) : null,
             stages: normalizeBatchStages(existing.stages, qty, cDate),
@@ -1070,7 +1074,10 @@ export function SKUTrackingSheet() {
                   </button>
                 )}
               </div>
-              <div className="text-[14px] font-semibold text-slate-900 mt-0.5">{row.item_name}</div>
+              <div className="text-[14px] font-semibold text-slate-900 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                {row.item_name}
+                {row.oem_brand && <span title={row.sub_sku_name || ''} className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-600 text-white">OEM: {row.oem_brand}</span>}
+              </div>
               <div className="flex items-center gap-3 text-[11.5px] text-slate-500 mt-1">
                 <span>{row.casting_date}</span>
                 <span><b className="text-slate-800">{row.qty_recd_casting}</b> pcs</span>
@@ -1586,6 +1593,7 @@ export function SKUTrackingSheet() {
                       </td>
                       <td className="p-2 font-bold text-slate-900 min-w-[200px] leading-tight">
                         {row.item_name}
+                        {row.oem_brand && <span title={row.sub_sku_name || ''} className="ml-1.5 inline-block align-middle text-[9px] font-black px-1.5 py-0.5 rounded bg-purple-600 text-white">OEM: {row.oem_brand}</span>}
                       </td>
                       <td className="p-2 text-right font-semibold text-slate-900 bg-slate-50/30">
                         {row.qty_recd_casting}

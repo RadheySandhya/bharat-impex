@@ -116,7 +116,7 @@ class BOMController {
                     $bomId,
                     $item['rm_id'],
                     $item['quantity_per_unit'],
-                    $item['unit_id'],
+                    InventoryService::resolveUnitId($item['unit_id'] ?? 0, 'PCS'),
                     $item['wastage_percentage'] ?? 0.00,
                     $item['scrap_factor'] ?? 0.00,
                     $item['sequence'] ?? ($idx + 1),
@@ -194,7 +194,7 @@ class BOMController {
                     $id,
                     $item['rm_id'],
                     $item['quantity_per_unit'],
-                    $item['unit_id'] ?? 3,
+                    InventoryService::resolveUnitId($item['unit_id'] ?? 0, 'PCS'),
                     $item['wastage_percentage'] ?? 0.00,
                     $item['scrap_factor'] ?? 0.00,
                     $item['sequence'] ?? ($idx + 1),
@@ -326,8 +326,9 @@ class BOMController {
                         $rmStmt = $db->prepare("SELECT unit_id FROM raw_materials WHERE id = ?");
                         $rmStmt->execute([$it['rm_id']]);
                         $rmU = $rmStmt->fetch();
-                        $unitId = (int)($rmU['unit_id'] ?? 3);
+                        $unitId = (int)($rmU['unit_id'] ?? 0);
                     }
+                    $unitId = InventoryService::resolveUnitId($unitId, 'PCS');
 
                     $insItem->execute([
                         $bomId,

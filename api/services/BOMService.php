@@ -11,6 +11,8 @@ class BOMService {
     public static function ensureSchema(PDO $db): void {
         static $checked = false;
         if ($checked) return;
+        // DDL implicitly COMMITs an open transaction in MySQL - never run it mid-transaction.
+        if ($db->inTransaction()) return;
 
         try {
             // Ensure sub_child_parts table exists

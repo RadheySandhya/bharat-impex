@@ -36,6 +36,7 @@ export function SKU_BOM() {
   const [bomTab, setBomTab] = useState('pending'); // pending (default: create BOM) | done | all
   const [savedFgIds, setSavedFgIds] = useState(new Set());
   const [copyFrom, setCopyFrom] = useState({}); // pending fg id -> source fg id
+  const [bomSearch, setBomSearch] = useState('');
 
   const { success, error, warning } = useToast();
 
@@ -328,6 +329,10 @@ export function SKU_BOM() {
   }, [rows]);
   const doneFgs = useMemo(() => finishedGoods.filter((f) => savedFgIds.has(String(f.id))), [finishedGoods, savedFgIds]);
   const pendingFgs = useMemo(() => finishedGoods.filter((f) => !savedFgIds.has(String(f.id))), [finishedGoods, savedFgIds]);
+  // search inside the Done / Pending product strip
+  const matchFg = (f) => { const q = bomSearch.trim().toLowerCase(); return !q || `${f.product_name} ${f.fg_code}`.toLowerCase().includes(q); };
+  const shownDone = doneFgs.filter(matchFg);
+  const shownPending = pendingFgs.filter(matchFg);
 
   // Start a BOM for a product: copy another product's recipe, or add blank rows
   const startBom = (fg, sourceFgId) => {
@@ -488,6 +493,17 @@ export function SKU_BOM() {
             ))}
           </div>
           <span className="text-[11.5px] text-slate-500">
+            {null}
+          </span>
+          {bomTab !== 'all' && (
+            <div className="relative ml-auto w-full sm:w-64">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input type="search" value={bomSearch} onChange={(e) => setBomSearch(e.target.value)}
+                placeholder={`Search ${bomTab === 'pending' ? 'pending' : 'done'} products...`}
+                className="w-full h-8 pl-8 pr-2 rounded-lg border border-slate-300 text-xs" aria-label="Search products" />
+            </div>
+          )}
+          <span className="hidden">
             {bomTab === 'pending' ? 'Products without a saved recipe. Start one blank, or copy a similar product and change what differs.'
               : bomTab === 'done' ? 'Products with a saved recipe. Click one to open its recipe.' : 'Every recipe row.'}
           </span>
@@ -497,10 +513,11 @@ export function SKU_BOM() {
           doneFgs.length === 0
             ? <p className="text-xs text-slate-400 px-1">No saved BOM yet.</p>
             : (
-              <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
-                {doneFgs.map((fg) => (
+              <div className="bom-strip flex gap-2 overflow-x-auto snap-x snap-mandatory pb-2 -mx-1 px-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+                {shownDone.length === 0 && <p className="text-xs text-slate-400 px-1 py-2">No product matches "{bomSearch}".</p>}
+                {shownDone.map((fg) => (
                   <button key={fg.id} type="button" onClick={() => setSelectedFGFilter(String(selectedFGFilter) === String(fg.id) ? 'ALL' : fg.id)}
-                    className={`text-left rounded-xl border px-3 py-2 cursor-pointer transition-colors ${String(selectedFGFilter) === String(fg.id) ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/40'}`}>
+                    className={`shrink-0 snap-start w-[230px] text-left rounded-xl border px-3 py-2 cursor-pointer transition-colors ${String(selectedFGFilter) === String(fg.id) ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/40'}`}>
                     <div className="flex items-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                       <span className="text-[12.5px] font-semibold text-slate-900 truncate">{fg.product_name}</span>
@@ -516,11 +533,12 @@ export function SKU_BOM() {
           pendingFgs.length === 0
             ? <p className="text-xs text-emerald-700 px-1 flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" /> Every finished good has a BOM.</p>
             : (
-              <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
-                {pendingFgs.map((fg) => {
+              <div className="bom-strip flex gap-2 overflow-x-auto snap-x snap-mandatory pb-2 -mx-1 px-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+                {shownPending.length === 0 && <p className="text-xs text-slate-400 px-1 py-2">No product matches "{bomSearch}".</p>}
+                {shownPending.map((fg) => {
                   const inProgress = partsByFg[String(fg.id)] || 0;
                   return (
-                    <div key={fg.id} className={`rounded-xl border px-3 py-2.5 ${String(selectedFGFilter) === String(fg.id) ? 'border-amber-400 bg-amber-50/60' : 'border-slate-200'}`}>
+                    <div key={fg.id} className={`shrink-0 snap-start w-[300px] sm:w-[320px] rounded-xl border px-3 py-2.5 ${String(selectedFGFilter) === String(fg.id) ? 'border-amber-400 bg-amber-50/60' : 'border-slate-200'}`}>
                       <div className="flex items-center gap-1.5">
                         <Package className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                         <span className="text-[12.5px] font-semibold text-slate-900 truncate">{fg.product_name}</span>

@@ -104,9 +104,15 @@ export function FullKittingModal({
     setCustomItems(next);
   };
 
+  // Sub-child parts (types) mapped under a child part — from the preview (with godown stock), else master list
+  const variantsFor = (item) => {
+    if (Array.isArray(item?.variants) && item.variants.length > 0) return item.variants;
+    return subChildParts.filter((s) => Number(s.parent_rm_id) === Number(item?.rm_id));
+  };
+
   const handleVariantChange = (index, subChildPartId) => {
     const next = [...customItems];
-    const scp = subChildParts.find(s => String(s.id) === String(subChildPartId));
+    const scp = variantsFor(next[index]).find(s => String(s.id) === String(subChildPartId));
     next[index] = {
       ...next[index],
       sub_child_part_id: subChildPartId ? Number(subChildPartId) : null,
@@ -116,9 +122,57 @@ export function FullKittingModal({
     setCustomItems(next);
   };
 
+  // Use two (or more) types for one child part, e.g. 60 of Handle A + 40 of Handle B
+  const handleSplitRow = (index) => {
+    const next = [...customItems];
+    const row = next[index];
+    const total = Number(row.total_required_qty || 0);
+    const first = Math.ceil(total / 2);
+    next[index] = { ...row, total_required_qty: first };
+    next.splice(index + 1, 0, {
+      ...row,
+      total_required_qty: Math.max(0, total - first),
+      sub_child_part_id: null,
+      sub_part_name: null,
+      sub_part_brand: null,
+      is_split: true,
+    });
+    setCustomItems(next);
+  };
+
+  const handleRemoveSplitRow = (index) => {
+    const next = [...customItems];
+    const removed = next[index];
+    next.splice(index, 1);
+    // give the quantity back to the previous line of the same child part
+    for (let i = index - 1; i >= 0; i--) {
+      if (Number(next[i].rm_id) === Number(removed.rm_id)) {
+        next[i] = { ...next[i], total_required_qty: Number(next[i].total_required_qty || 0) + Number(removed.total_required_qty || 0) };
+        break;
+      }
+    }
+    setCustomItems(next);
+  };
+
+  // After kitting, show exactly what was issued (including split lines) from the saved details
+  const displayItems = (kittingData?.already_deducted && Array.isArray(kittingData?.kitting_details) && kittingData.kitting_details.length > 0)
+    ? kittingData.kitting_details.map((d) => {
+        const base = customItems.find((c) => Number(c.rm_id) === Number(d.rm_id)) || {};
+        return { ...base, ...d, total_required_qty: Number(d.qty_deducted ?? base.total_required_qty ?? 0), unit_code: d.unit_code || base.unit_code };
+      })
+    : customItems;
+
+  const missingVariantRows = customItems.filter(
+    (it) => variantsFor(it).length > 0 && !it.sub_child_part_id && Number(it.total_required_qty || 0) > 0
+  );
+
   const handleConfirmDeduction = async () => {
     if (!batchNo) {
       error('Batch number is missing.');
+      return;
+    }
+    if (missingVariantRows.length > 0) {
+      error(`Please choose which type to use for: ${[...new Set(missingVariantRows.map((r) => r.material_name))].join(', ')}`);
       return;
     }
     if (kittingData?.has_shortage && !allowNegative) {
@@ -184,6 +238,7 @@ export function FullKittingModal({
               type="button"
               onClick={handleConfirmDeduction}
               disabled={submitting || loading}
+              title={missingVariantRows.length > 0 ? 'Choose the sub-child part type for every highlighted line first' : undefined}
               className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
             >
               <Icon name="boxes" size="xs" ariaHidden={true} />
@@ -279,17 +334,26 @@ export function FullKittingModal({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
-                  {customItems.map((item, idx) => {
-                    const reqQty = Number(item.total_required_qty || 0);
-                    const availStock = Number(item.available_stock || 0);
+                  {displayItems.map((item, idx) => {
+                    const reqQty = Number(item.total_required_qty ?? item.qty_deducted ?? 0);
+                    const matchingVariants = variantsFor(item);
+                    const chosenVariant = item.sub_child_part_id
+                      ? matchingVariants.find((v) => String(v.id) === String(item.sub_child_part_id))
+                      : null;
+                    // When a type is chosen, its own godown balance is what gets issued
+                    const variantAvail = chosenVariant && chosenVariant.available_in_warehouse !== undefined
+                      ? Number(chosenVariant.available_in_warehouse || 0)
+                      : null;
+                    const availStock = variantAvail !== null ? variantAvail : Number(item.available_stock || 0);
                     const isSufficient = availStock >= reqQty;
                     const shortageDeficit = reqQty - availStock;
-                    const matchingVariants = subChildParts.filter(s => Number(s.parent_rm_id) === Number(item.rm_id));
+                    const needsChoice = !kittingData?.already_deducted && matchingVariants.length > 0 && !item.sub_child_part_id;
+                    const sameRmCount = customItems.filter((c) => Number(c.rm_id) === Number(item.rm_id)).length;
 
                     return (
-                      <tr 
-                        key={item.rm_id || idx} 
-                        className={`transition-colors ${isSufficient ? 'hover:bg-slate-50/70' : 'bg-rose-50/30 hover:bg-rose-50/60'}`}
+                      <tr
+                        key={`${item.rm_id || 'x'}-${idx}`}
+                        className={`transition-colors ${needsChoice ? 'bg-amber-50/60' : isSufficient ? 'hover:bg-slate-50/70' : 'bg-rose-50/30 hover:bg-rose-50/60'}`}
                       >
                         <td className="py-2.5 px-3 font-mono font-bold text-slate-900">
                           {item.rm_code}
@@ -313,18 +377,46 @@ export function FullKittingModal({
                               <span className="text-slate-400 font-medium italic text-[11px]">Standard / Universal</span>
                             )
                           ) : matchingVariants.length > 0 ? (
-                            <select
-                              value={item.sub_child_part_id || ''}
-                              onChange={(e) => handleVariantChange(idx, e.target.value)}
-                              className="w-full bg-white border border-blue-300 text-blue-900 rounded-lg px-2 py-1 text-xs font-bold focus:ring-2 focus:ring-blue-500 shadow-2xs cursor-pointer"
-                            >
-                              <option value="">-- Standard / Universal --</option>
-                              {matchingVariants.map(v => (
-                                <option key={v.id} value={v.id}>
-                                  [{v.brand_name || 'Brand'}] {v.sub_part_name}
-                                </option>
-                              ))}
-                            </select>
+                            <div className="space-y-1">
+                              <select
+                                value={item.sub_child_part_id || ''}
+                                onChange={(e) => handleVariantChange(idx, e.target.value)}
+                                aria-invalid={needsChoice}
+                                className={`w-full bg-white rounded-lg px-2 py-1 text-xs font-bold focus:ring-2 focus:ring-blue-500 shadow-2xs cursor-pointer ${
+                                  needsChoice ? 'border-2 border-amber-500 text-amber-900' : 'border border-blue-300 text-blue-900'
+                                }`}
+                              >
+                                <option value="">-- Choose which type to use ({matchingVariants.length}) --</option>
+                                {matchingVariants.map(v => (
+                                  <option key={v.id} value={v.id}>
+                                    [{v.brand_name || 'Type'}] {v.sub_part_name}
+                                    {v.available_in_warehouse !== undefined ? ` — ${Number(v.available_in_warehouse).toLocaleString('en-IN', { maximumFractionDigits: 3 })} in godown` : ''}
+                                  </option>
+                                ))}
+                              </select>
+                              <div className="flex items-center gap-2">
+                                {needsChoice && (
+                                  <span className="text-[10px] font-bold text-amber-700">Required: pick a type</span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleSplitRow(idx)}
+                                  className="text-[10px] font-bold text-blue-700 hover:underline cursor-pointer"
+                                  title="Issue this child part from two different types (e.g. 60 of one handle + 40 of another)"
+                                >
+                                  + Split into another type
+                                </button>
+                                {item.is_split && sameRmCount > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveSplitRow(idx)}
+                                    className="text-[10px] font-bold text-rose-600 hover:underline cursor-pointer"
+                                  >
+                                    Remove
+                                  </button>
+                                )}
+                              </div>
+                            </div>
                           ) : (
                             <span className="text-slate-400 font-medium italic text-[11px]">
                               Standard / Universal
@@ -349,6 +441,11 @@ export function FullKittingModal({
                             {availStock.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
                           </span>
                           <span className="text-[10px] text-slate-500 font-bold ml-1">{item.unit_code}</span>
+                          {variantAvail !== null && (
+                            <span className="block text-[10px] text-slate-400 font-sans font-semibold">
+                              of this type · all types: {Number(item.available_stock || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                            </span>
+                          )}
                         </td>
                         <td className="py-2.5 px-3 text-center whitespace-nowrap">
                           {isSufficient ? (

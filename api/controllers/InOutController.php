@@ -199,10 +199,8 @@ class InOutController {
         Auth::requireAuth();
         $db = Database::getConnection();
 
-        // Self-healing: ensure current_stock column on sub_child_parts
-        try {
-            $db->exec("ALTER TABLE `sub_child_parts` ADD COLUMN `current_stock` DECIMAL(14, 3) NOT NULL DEFAULT 0.000 AFTER `standard_rate`");
-        } catch (Exception $e) {}
+        SubChildStockService::ensureSchema();
+        $scpGodowns = SubChildStockService::stockByWarehouse();
 
         // 1. Fetch Warehouses
         $whStmt = $db->query("SELECT id, warehouse_code, warehouse_name, location FROM warehouses WHERE active = 1 ORDER BY id ASC");
@@ -273,6 +271,7 @@ class InOutController {
                     'standard_rate'        => (float)$scp['standard_rate'],
                     'current_stock'        => (float)$scp['current_stock'],
                     'mapped_customer_name' => $scp['mapped_customer_name'] ?? null,
+                    'godown_stocks'        => $scpGodowns[(int)$scp['id']] ?? [],
                 ];
             }
         } catch (Exception $e) {}
@@ -387,6 +386,30 @@ WHERE s.active = 1 AND fg.active = 1 AND fg.deleted_at IS NULL
             $subSkus = [];
         }
 
+        // OEM brand stock: each Sub-SKU shows its OWN godown stock, and each FG lists its brands
+        $brandsByFg = [];
+        try {
+            SubSkuStockService::ensureSchema();
+            $sIds = array_column($subSkus, 'sub_sku_id');
+            $sTot = SubSkuStockService::totals($sIds);
+            $sWh  = SubSkuStockService::stockByWarehouse($sIds);
+            foreach ($subSkus as &$sk) {
+                $sid = (int)$sk['sub_sku_id'];
+                $sk['parent_stock']  = (float)$sk['current_stock'];
+                $sk['current_stock'] = $sTot[$sid] ?? 0.0;
+                $sk['godown_stocks'] = $sWh[$sid] ?? [];
+                $brandsByFg[(int)$sk['parent_fg_id']][] = [
+                    'sub_sku_id' => $sid, 'sub_sku_code' => $sk['sub_sku_code'], 'sub_sku_name' => $sk['sub_sku_name'],
+                    'brand_name' => $sk['brand_name'], 'current_stock' => $sk['current_stock'], 'godown_stocks' => $sk['godown_stocks'],
+                ];
+            }
+            unset($sk);
+            foreach ($fgs as &$fgRow) {
+                $fgRow['oem_brands'] = $brandsByFg[(int)$fgRow['id']] ?? [];
+            }
+            unset($fgRow);
+        } catch (Exception $e) {}
+
         $subSkuFormatted = [];
         foreach ($subSkus as $sub) {
             $pId = (int)$sub['parent_fg_id'];
@@ -405,7 +428,7 @@ WHERE s.active = 1 AND fg.active = 1 AND fg.deleted_at IS NULL
                 'is_sub_sku'      => true,
                 'parent_fg_id'    => $pId,
                 'parent_fg_name'  => $sub['parent_product_name'],
-                'godown_stocks'   => $stocksByMatKey["FG_{$pId}"] ?? [],
+                'godown_stocks'   => $sub['godown_stocks'] ?? [],
                 'bom_child_parts' => $bomByFgId[$pId] ?? []
             ];
         }
@@ -623,12 +646,17 @@ WHERE s.active = 1 AND fg.active = 1 AND fg.deleted_at IS NULL
                             ? " [Variant: " . trim(($subPartBrand ? "[$subPartBrand] " : "") . $subPartName) . "]"
                             : "";
 
-                        // Increase variant stock
+                        // Increase variant stock in the same godown as the parent child part
                         if ($subChildPartId > 0) {
-                            try {
-                                $db->prepare("UPDATE sub_child_parts SET current_stock = current_stock + ? WHERE id = ?")
-                                   ->execute([$quantity, $subChildPartId]);
-                            } catch (Exception $e) {}
+                            $chkParent = $db->prepare("SELECT parent_rm_id FROM sub_child_parts WHERE id = ?");
+                            $chkParent->execute([$subChildPartId]);
+                            if ((int)$chkParent->fetchColumn() !== $itemId) {
+                                throw new InvalidArgumentException("Row #" . ($index + 1) . ": the selected sub-child part does not belong to {$rm['material_name']}.");
+                            }
+                            SubChildStockService::move(
+                                $subChildPartId, $warehouseId, $quantity, 'PURCHASE', $invoiceNumber,
+                                "Inward from {$partyName} (Inv: {$invoiceNumber})", $user['id']
+                            );
                         }
 
                         $tallyName = $rm['material_name'] . $varLabel;
@@ -675,14 +703,24 @@ WHERE s.active = 1 AND fg.active = 1 AND fg.deleted_at IS NULL
                         $amount = round($quantity * $effectiveRate, 2);
                         $warehouseId = InventoryService::getValidWarehouseId((int)($row['warehouse_id'] ?? 0));
 
+                        // OEM brand purchase: goes into that brand's own godown stock
+                        $subSkuId = !empty($row['sub_sku_id']) ? (int)$row['sub_sku_id'] : null;
+                        $purchaseName = $fg['product_name'];
+                        if ($subSkuId) {
+                            $oem = SubSkuStockService::requireForFg($subSkuId, $itemId);
+                            SubSkuStockService::move($subSkuId, $warehouseId, $quantity, 'PURCHASE', $invoiceNumber,
+                                "Purchase from {$partyName} (Inv: {$invoiceNumber})", $user['id']);
+                            $purchaseName = $oem['sub_sku_name'];
+                        }
+
                         $db->prepare("
                             INSERT INTO purchase_inputs (
                                 purchase_date, invoice_number, supplier_name, tally_item_name, material_type,
-                                fg_id, fg_code, warehouse_id, quantity, unit_id, rate, amount, source, created_by, created_at
-                            ) VALUES (?, ?, ?, ?, 'FG', ?, ?, ?, ?, ?, ?, ?, 'MANUAL_ENTRY', ?, NOW())
+                                fg_id, sub_sku_id, fg_code, warehouse_id, quantity, unit_id, rate, amount, source, created_by, created_at
+                            ) VALUES (?, ?, ?, ?, 'FG', ?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL_ENTRY', ?, NOW())
                         ")->execute([
-                            $date, $invoiceNumber, $partyName, $fg['product_name'],
-                            $itemId, $fg['fg_code'], $warehouseId, $quantity, $fg['unit_id'],
+                            $date, $invoiceNumber, $partyName, $purchaseName,
+                            $itemId, $subSkuId, $fg['fg_code'], $warehouseId, $quantity, $fg['unit_id'],
                             $effectiveRate, $amount, $user['id']
                         ]);
 
@@ -719,6 +757,14 @@ WHERE s.active = 1 AND fg.active = 1 AND fg.deleted_at IS NULL
 
                         $itemNameForSale = !empty($row['clean_name']) ? $row['clean_name'] : (!empty($row['item_name']) ? $row['item_name'] : $fg['product_name']);
                         $subSkuId = !empty($row['sub_sku_id']) ? (int)$row['sub_sku_id'] : null;
+
+                        // OEM brand sale: dispatch from that brand's own godown stock
+                        if ($subSkuId) {
+                            $oem = SubSkuStockService::requireForFg($subSkuId, $itemId);
+                            SubSkuStockService::move($subSkuId, $warehouseId, -$quantity, 'SALE', $invoiceNumber,
+                                "Dispatch to {$partyName} (Inv: {$invoiceNumber})", $user['id'], SubSkuStockService::negativeAllowed());
+                            $itemNameForSale = $oem['sub_sku_name'];
+                        }
 
                         // Record in sale_inputs table
                         $db->prepare("

@@ -139,6 +139,8 @@ export function IMSTriNagarMaster() {
       setActiveModalTab(preferredTab);
     } else if (itemRow.material_type === 'RM' && itemRow.variants && itemRow.variants.length > 0) {
       setActiveModalTab('variants');
+    } else if (itemRow.material_type === 'FG' && itemRow.oem_brands && itemRow.oem_brands.length > 0) {
+      setActiveModalTab('oem');
     } else {
       setActiveModalTab('godown');
     }
@@ -508,7 +510,11 @@ export function IMSTriNagarMaster() {
                   style={{ borderLeft: `4px solid ${z.style?.color || '#94a3b8'}` }}
                 >
                   <div className="text-[12px] font-semibold text-slate-900 leading-tight line-clamp-2 min-h-[30px]">{row.item_name}</div>
-                  <div className="text-[10px] font-mono text-slate-500 mt-0.5">{row.cat_no}</div>
+                  <div className="flex items-center gap-1 mt-0.5">
+                    <span className="text-[10px] font-mono text-slate-500">{row.cat_no}</span>
+                    {row.material_type === 'FG' && row.oem_brands?.length > 0 && <span className="text-[9px] font-bold px-1 rounded bg-purple-50 text-purple-700 border border-purple-300">OEM ×{row.oem_brands.length}</span>}
+                    {row.material_type === 'RM' && row.variants?.length > 0 && <span className="text-[9px] font-bold px-1 rounded bg-amber-50 text-amber-800 border border-amber-300">Variants ×{row.variants.length}</span>}
+                  </div>
                   <div className="flex items-baseline gap-1 mt-1.5">
                     <span className="text-[20px] font-bold tabular-nums" style={{ color: z.style?.color }}>{Number(row.current_stock).toLocaleString('en-IN')}</span>
                     <span className="text-[10px] text-slate-500 font-semibold">{row.unit_code || 'PCS'}</span>
@@ -630,14 +636,25 @@ export function IMSTriNagarMaster() {
                           {row.item_name}
                         </span>
                         <div className="flex items-center gap-1 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
-                          {row.material_type === 'RM' && (
+                          {/* Multiple variants: a clear badge (OEM brands for finished goods, varieties for child parts) */}
+                          {row.material_type === 'RM' && row.variants?.length > 0 && (
                             <button
                               type="button"
                               onClick={(e) => { e.stopPropagation(); handleOpenStockDetails(row, 'variants'); }}
-                              title={`View Brand Varieties (${row.variants?.length || 0})`}
-                              className="p-1 rounded-md bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                              title={`${row.variants.length} varieties: ${row.variants.map((v) => v.brand_name || v.sub_part_name).join(', ')}`}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-bold cursor-pointer shadow-2xs"
                             >
-                              <Boxes className="w-3 h-3" />
+                              <Boxes className="w-3 h-3" /> Variants ×{row.variants.length}
+                            </button>
+                          )}
+                          {row.material_type === 'FG' && row.oem_brands?.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleOpenStockDetails(row, 'oem'); }}
+                              title={`OEM brands: ${row.oem_brands.map((b) => b.brand_name).join(', ')}`}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-300 text-[10px] font-bold cursor-pointer shadow-2xs"
+                            >
+                              <Boxes className="w-3 h-3" /> OEM ×{row.oem_brands.length}
                             </button>
                           )}
                           {row.material_type === 'FG' && (
@@ -832,6 +849,21 @@ export function IMSTriNagarMaster() {
               {selectedStockModal.material_type === 'FG' && (
                 <button
                   type="button"
+                  onClick={() => setActiveModalTab('oem')}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    activeModalTab === 'oem'
+                      ? 'bg-purple-600 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <Boxes className="w-3.5 h-3.5" />
+                  <span>OEM Brands ({selectedStockModal.oem_brands?.length || 0})</span>
+                </button>
+              )}
+
+              {selectedStockModal.material_type === 'FG' && (
+                <button
+                  type="button"
                   onClick={() => setActiveModalTab('bom')}
                   className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                     activeModalTab === 'bom'
@@ -844,6 +876,59 @@ export function IMSTriNagarMaster() {
                 </button>
               )}
             </div>
+
+            {/* TAB: OEM BRAND STOCK (FINISHED GOODS) */}
+            {activeModalTab === 'oem' && selectedStockModal.material_type === 'FG' && (() => {
+              const brands = selectedStockModal.oem_brands || [];
+              const brandTotal = brands.reduce((s, b) => s + Number(b.current_stock || 0), 0);
+              const ownStock = Number(selectedStockModal.current_stock || 0) - brandTotal;
+              return (
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-100 text-[11px] font-bold text-slate-700 border-b border-slate-200">
+                      <tr>
+                        <th className="p-2.5">Brand / OEM</th>
+                        <th className="p-2.5">OEM SKU</th>
+                        <th className="p-2.5 text-right">Stock</th>
+                        <th className="p-2.5">By godown</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {brands.map((b) => (
+                        <tr key={b.id} className="hover:bg-slate-50/70">
+                          <td className="p-2.5">
+                            <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-purple-600 text-white">{b.brand_name}</span>
+                          </td>
+                          <td className="p-2.5">
+                            <span className="font-bold text-slate-900">{b.sub_sku_name}</span>
+                            <span className="block font-mono text-[10px] text-slate-500">{b.sub_sku_code}{b.client_item_code ? ` · client code ${b.client_item_code}` : ''}</span>
+                          </td>
+                          <td className="p-2.5 text-right font-mono font-black text-purple-700">{b.current_stock} {selectedStockModal.unit_code}</td>
+                          <td className="p-2.5 text-[11px] text-slate-600">
+                            {(b.godown_stocks || []).length === 0 ? <span className="text-slate-400 italic">No stock</span> :
+                              b.godown_stocks.map((g) => <div key={g.warehouse_id}>{g.warehouse_name}: <strong className="text-slate-800">{g.quantity}</strong></div>)}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="bg-slate-50/60">
+                        <td className="p-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-700">Own brand</span></td>
+                        <td className="p-2.5 text-slate-600 italic">Generic stock (not tied to an OEM)</td>
+                        <td className="p-2.5 text-right font-mono font-bold text-slate-800">{Math.round(ownStock * 1000) / 1000} {selectedStockModal.unit_code}</td>
+                        <td className="p-2.5" />
+                      </tr>
+                      <tr className="bg-slate-100 font-bold">
+                        <td className="p-2.5" colSpan={2}>Total {selectedStockModal.item_name}</td>
+                        <td className="p-2.5 text-right font-mono">{selectedStockModal.current_stock} {selectedStockModal.unit_code}</td>
+                        <td className="p-2.5" />
+                      </tr>
+                    </tbody>
+                  </table>
+                  {brands.length === 0 && (
+                    <p className="p-4 text-center text-slate-400 text-xs">No OEM brands mapped yet. Add them in Settings → Sub-SKUs (OEM brands).</p>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* TAB CONTENT 1: GODOWN-WISE BREAKDOWN */}
             {activeModalTab === 'godown' && (
@@ -943,10 +1028,10 @@ export function IMSTriNagarMaster() {
                       <tr className="bg-slate-50/50 hover:bg-slate-50">
                         <td className="p-2.5 text-center font-mono text-slate-400">-</td>
                         <td className="p-2.5">
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-700">Generic</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-700">Total</span>
                         </td>
                         <td className="p-2.5">
-                          <span className="font-bold text-slate-800">Standard / Universal (No Brand)</span>
+                          <span className="font-bold text-slate-800">Master child part — total of all types</span>
                           <span className="block text-[10px] text-slate-400 font-mono">{selectedStockModal.cat_no}</span>
                         </td>
                         <td className="p-2.5 text-right font-mono font-bold text-slate-800">-</td>
@@ -981,6 +1066,11 @@ export function IMSTriNagarMaster() {
                             </td>
                             <td className="p-2.5 text-right font-mono font-black text-purple-700 text-xs">
                               {v.current_stock || 0} {selectedStockModal.unit_code}
+                              {(v.godown_stocks || []).map((g) => (
+                                <span key={g.warehouse_id} className="block text-[10px] font-sans font-semibold text-slate-500 whitespace-nowrap">
+                                  {g.warehouse_name}: <strong className="text-slate-700">{g.quantity}</strong>
+                                </span>
+                              ))}
                             </td>
                             <td className="p-2.5">
                               {v.mapped_customer_name ? (

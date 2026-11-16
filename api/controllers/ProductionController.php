@@ -521,6 +521,18 @@ class ProductionController {
             $prStmt->execute([$batchNo]);
             $rel = $prStmt->fetch();
 
+            // 4a. OEM brand production: the good pieces also go into that brand's own godown stock
+            $oemNote = '';
+            if ($rel && !empty($rel['planning_id'])) {
+                $ssStmt = $db->prepare("SELECT ss.id, ss.brand_name, ss.sub_sku_name FROM production_planning pp JOIN sub_skus ss ON ss.id = pp.sub_sku_id WHERE pp.id = ?");
+                $ssStmt->execute([$rel['planning_id']]);
+                if ($oem = $ssStmt->fetch()) {
+                    SubSkuStockService::move((int)$oem['id'], $warehouseId, $goodQty, 'PRODUCTION_OUTPUT', $batchNo,
+                        "SKU Tracking final handoff (Batch {$batchNo})", $user['id'] ?? null);
+                    $oemNote = " ({$oem['brand_name']}: {$oem['sub_sku_name']})";
+                }
+            }
+
             if ($rel && !empty($rel['planning_id'])) {
                 $db->prepare("
                     UPDATE production_planning 
@@ -556,7 +568,7 @@ class ProductionController {
                 'previous_qty'      => $stockRes['previous_qty'],
                 'new_stock'         => $stockRes['new_qty'],
                 'warehouse_id'      => $warehouseId
-            ], "Successfully added {$goodQty} PCS to Finished Goods Stock! New Live Balance: {$stockRes['new_qty']} PCS.");
+            ], "Successfully added {$goodQty} PCS{$oemNote} to Finished Goods Stock! New Live Balance: {$stockRes['new_qty']} PCS.");
         } catch (Exception $e) {
             if ($db->inTransaction()) {
                 $db->rollBack();
@@ -746,10 +758,41 @@ class ProductionController {
                 }
             }
         }
+        // Sub-child parts (e.g. several handle types under one "Handle" child part):
+        // the kitting screen must ask which one to issue, showing its stock in each godown.
+        $variantsByRm = [];
+        if ($rmIds) {
+            $ph = implode(',', array_fill(0, count($rmIds), '?'));
+            $vs = $db->prepare("SELECT id, parent_rm_id, sub_part_code, sub_part_name, brand_name, standard_rate, COALESCE(current_stock,0) AS current_stock
+                                FROM sub_child_parts WHERE active = 1 AND parent_rm_id IN ({$ph}) ORDER BY brand_name, sub_part_name");
+            $vs->execute($rmIds);
+            $variantRows = $vs->fetchAll();
+            $vGodowns = SubChildStockService::stockByWarehouse(array_column($variantRows, 'id'));
+            foreach ($variantRows as $v) {
+                $gl = $vGodowns[(int)$v['id']] ?? [];
+                $inWh = 0.0;
+                foreach ($gl as $g) {
+                    if ($g['warehouse_id'] === $warehouseId) $inWh = $g['quantity'];
+                }
+                $variantsByRm[(int)$v['parent_rm_id']][] = [
+                    'id'                     => (int)$v['id'],
+                    'sub_part_code'          => $v['sub_part_code'],
+                    'sub_part_name'          => $v['sub_part_name'],
+                    'brand_name'             => $v['brand_name'],
+                    'standard_rate'          => (float)$v['standard_rate'],
+                    'current_stock'          => (float)$v['current_stock'],
+                    'available_in_warehouse' => $inWh,
+                    'godown_stocks'          => $gl,
+                ];
+            }
+        }
+
         foreach ($items as &$it) {
             $list = $byWh[(int)($it['rm_id'] ?? 0)] ?? [];
             $it['stock_by_warehouse'] = $list;
             $it['total_available_all'] = array_sum(array_map(fn($w) => $w['available'], $list));
+            $it['variants'] = $variantsByRm[(int)($it['rm_id'] ?? 0)] ?? [];
+            $it['requires_variant'] = count($it['variants']) > 0;
         }
         unset($it);
         arsort($whScore);
@@ -915,21 +958,11 @@ class ProductionController {
                 $unitId = (int)($rmData['unit_id'] ?: 1);
                 $rate = (float)($rmData['standard_rate'] ?: 0.0);
 
-                $subChildPartId = !empty($item['sub_child_part_id']) ? (int)$item['sub_child_part_id'] : null;
-                $subPartName    = !empty($item['sub_part_name']) ? trim($item['sub_part_name']) : null;
-                $subPartBrand   = !empty($item['sub_part_brand']) ? trim($item['sub_part_brand']) : null;
-
-                if ($subChildPartId && (!$subPartName || !$subPartBrand)) {
-                    try {
-                        $scpStmt = $db->prepare("SELECT sub_part_name, brand_name, sub_part_code FROM sub_child_parts WHERE id = ?");
-                        $scpStmt->execute([$subChildPartId]);
-                        $scpRow = $scpStmt->fetch(PDO::FETCH_ASSOC);
-                        if ($scpRow) {
-                            $subPartName = $scpRow['sub_part_name'];
-                            $subPartBrand = $scpRow['brand_name'];
-                        }
-                    } catch (Exception $e) {}
-                }
+                // Sub-child part chosen for this line (mandatory when the child part has several types)
+                [$subChildPartId, $subPartName, $subPartBrand] = SubChildStockService::consumeForKitting(
+                    $item, $rmId, $rmData['material_name'], $warehouseId, $reqQty, $batchNo,
+                    $allowOverride, $user['id'] ?? null, true
+                );
 
                 $varNote = ($subPartBrand || $subPartName)
                     ? " [Variant: " . trim(($subPartBrand ? "[$subPartBrand] " : "") . $subPartName) . "]"
@@ -953,14 +986,6 @@ class ProductionController {
                     $user['id'] ?? null,
                     $allowOverride
                 );
-
-                // Decrement variant stock if tracked
-                if ($subChildPartId > 0) {
-                    try {
-                        $db->prepare("UPDATE sub_child_parts SET current_stock = GREATEST(0, current_stock - ?) WHERE id = ?")
-                           ->execute([$reqQty, $subChildPartId]);
-                    } catch (Exception $e) {}
-                }
 
                 $deductionResults[] = [
                     'rm_id'             => $rmId,

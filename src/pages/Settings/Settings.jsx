@@ -121,6 +121,9 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
   const [subChildSearch, setSubChildSearch] = useState('');
   const [isSubChildModalOpen, setIsSubChildModalOpen] = useState(false);
   const [partiesList, setPartiesList] = useState([]);
+  const [scpStock, setScpStock] = useState(null); // { part, warehouse_id, quantity, mode, update_parent, remarks }
+  const [scpStockGodowns, setScpStockGodowns] = useState([]);
+  const [scpStockSaving, setScpStockSaving] = useState(false);
 
   // Modals
   const [isRMModalOpen, setIsRMModalOpen] = useState(false);
@@ -583,6 +586,50 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
     setIsSubChildModalOpen(true);
   };
 
+  const handleOpenSubChildStock = async (part) => {
+    setScpStock({ part, warehouse_id: '', quantity: '', mode: 'add', update_parent: true, remarks: '' });
+    try {
+      const res = await api.settings.getWarehouses();
+      const list = (Array.isArray(res?.data) ? res.data : []).filter((w) => w.active === undefined || Number(w.active) === 1);
+      setScpStockGodowns(list);
+      setScpStock((s) => (s ? { ...s, warehouse_id: s.warehouse_id || (list[0] ? String(list[0].id) : '') } : s));
+    } catch (err) {
+      setScpStockGodowns([]);
+    }
+  };
+
+  const handleSaveSubChildStock = async (e) => {
+    e.preventDefault();
+    if (!scpStock?.warehouse_id) {
+      error('Please choose a godown.');
+      return;
+    }
+    const qty = Number(scpStock.quantity);
+    if (scpStock.quantity === '' || Number.isNaN(qty) || qty < 0 || (scpStock.mode === 'add' && qty <= 0)) {
+      error(scpStock.mode === 'add' ? 'Enter a quantity greater than zero.' : 'Enter the counted quantity (0 or more).');
+      return;
+    }
+    setScpStockSaving(true);
+    try {
+      const save = scpStock.part.kind === 'sku' ? api.subSkus.updateStock : api.subChildParts.updateStock;
+      const res = await save({
+        id: scpStock.part.id,
+        warehouse_id: Number(scpStock.warehouse_id),
+        quantity: qty,
+        mode: scpStock.mode,
+        update_parent: scpStock.update_parent,
+        remarks: scpStock.remarks,
+      });
+      success(res?.message || 'Sub-child part stock updated.');
+      setScpStock(null);
+      loadData();
+    } catch (err) {
+      error(err.message || 'Failed to update sub-child part stock.');
+    } finally {
+      setScpStockSaving(false);
+    }
+  };
+
   const handleSubChildSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -926,15 +973,23 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
         </div>
       ) 
     },
-    { 
-      header: 'Parent Live Stock', 
-      key: 'parent_stock', 
-      align: 'right', 
+    {
+      header: 'Brand Stock',
+      key: 'current_stock',
+      align: 'right',
       render: (stk, r) => (
-        <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-xs">
-          {Number(stk).toLocaleString()} {r.unit_code}
-        </span>
-      ) 
+        <div className="text-right">
+          <span className="font-mono font-black text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 text-xs">
+            {Number(stk || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 })} {r.unit_code}
+          </span>
+          {(r.godown_stocks || []).map((g) => (
+            <span key={g.warehouse_id} className="block text-[10px] text-slate-500 font-medium whitespace-nowrap mt-0.5">
+              {g.warehouse_name}: <strong className="text-slate-700">{Number(g.quantity).toLocaleString('en-IN', { maximumFractionDigits: 3 })}</strong>
+            </span>
+          ))}
+          <span className="block text-[10px] text-slate-400 mt-0.5">Parent total: {Number(r.parent_stock || 0).toLocaleString()}</span>
+        </div>
+      )
     },
     { 
       header: 'Brand Price (₹)', 
@@ -949,6 +1004,24 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
       align: 'right',
       render: (id, row) => (
         <div className="flex items-center justify-end gap-1.5">
+          <button
+            type="button"
+            onClick={() => handleOpenSubChildStock({
+              kind: 'sku',
+              id: row.id,
+              brand_name: row.brand_name,
+              sub_part_name: row.sub_sku_name,
+              parent_rm_code: row.parent_fg_code,
+              parent_rm_name: row.parent_product_name,
+              current_stock: row.current_stock,
+              unit_code: row.unit_code,
+              godown_stocks: row.godown_stocks,
+            })}
+            className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-bold transition-colors cursor-pointer whitespace-nowrap"
+            title="Add stock / physical count of this OEM brand in a godown"
+          >
+            Godown Stock
+          </button>
           <button
             type="button"
             onClick={() => handleOpenEditSubSKU(row)}
@@ -1054,6 +1127,24 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
       )
     },
     {
+      header: 'Godown Stock',
+      key: 'current_stock',
+      align: 'right',
+      render: (qty, r) => (
+        <div className="text-right">
+          <span className="font-mono font-black text-slate-900">
+            {Number(qty || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+          </span>
+          <span className="text-[10px] text-slate-500 font-bold ml-1">{r.unit_code || 'PCS'}</span>
+          {(r.godown_stocks || []).map((g) => (
+            <span key={g.warehouse_id} className="block text-[10px] text-slate-500 font-medium whitespace-nowrap">
+              {g.warehouse_name}: <strong className="text-slate-700">{Number(g.quantity).toLocaleString('en-IN', { maximumFractionDigits: 3 })}</strong>
+            </span>
+          ))}
+        </div>
+      )
+    },
+    {
       header: 'Status',
       key: 'active',
       render: (a) => <StatusBadge status={a == 1 ? 'ACTIVE' : 'INACTIVE'} size="xs" />
@@ -1064,6 +1155,14 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
       align: 'right',
       render: (id, row) => (
         <div className="flex items-center justify-end gap-1.5">
+          <button
+            type="button"
+            onClick={() => handleOpenSubChildStock(row)}
+            className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-bold transition-colors cursor-pointer whitespace-nowrap"
+            title="Add stock / physical count of this sub-child part in a godown"
+          >
+            Godown Stock
+          </button>
           <button
             type="button"
             onClick={() => handleOpenEditSubChild(row)}
@@ -1441,7 +1540,7 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
                 <span>Sub-Child Parts (Component Varieties & Customer Mappings)</span>
               </h1>
               <p className="text-xs text-slate-500 font-medium mt-0.5">
-                Manage brand varieties (e.g. Somany, Prince Pipe, Zen Bath) for child parts like Cartridges, Spindles, or Aerators. Mapped to your generic Child Part inventory with customer-specific pricing & variants.
+                Map multiple sub-child parts under one master child part (e.g. Handle → several handle types, or brand varieties of a Cartridge). Each sub-child part keeps its own godown stock, and SKU Tracking → Full Kitting asks which one to use.
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -2270,7 +2369,7 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
               }))}
             />
             <p className="text-[10px] text-slate-500 mt-1">
-              Physical inventory stock balance is managed on this parent Child Part. This variant defines the specific brand specification.
+              Map as many sub-child parts as you need under one master child part (e.g. Handle → Handle Type A, Type B, Type C). Each keeps its own godown stock, and Full Kitting asks which one to issue.
             </p>
           </div>
 
@@ -2407,6 +2506,129 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
             />
           </div>
         </form>
+      </Modal>
+
+      {/* Sub-Child Part Godown Stock Modal */}
+      <Modal
+        isOpen={!!scpStock}
+        onClose={() => setScpStock(null)}
+        title={scpStock ? `Godown Stock — [${scpStock.part.brand_name}] ${scpStock.part.sub_part_name}` : 'Godown Stock'}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setScpStock(null)}
+              className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700 cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="scp-stock-form"
+              disabled={scpStockSaving}
+              className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-xs font-bold text-white shadow-sm cursor-pointer"
+            >
+              {scpStockSaving ? 'Saving...' : scpStock?.mode === 'set' ? 'Save Physical Count' : 'Add Stock'}
+            </button>
+          </>
+        }
+      >
+        {scpStock && (
+          <form id="scp-stock-form" onSubmit={handleSaveSubChildStock} className="space-y-4 text-xs">
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+              <p className="font-semibold text-slate-700">
+                {scpStock.part.kind === 'sku' ? 'Parent finished good (SKU)' : 'Master child part'}: <strong className="text-slate-900">[{scpStock.part.parent_rm_code}] {scpStock.part.parent_rm_name}</strong>
+              </p>
+              <p className="text-slate-600 mt-1">
+                Current stock of this sub-child part:{' '}
+                <strong className="text-slate-900">{Number(scpStock.part.current_stock || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 })} {scpStock.part.unit_code || 'PCS'}</strong>
+              </p>
+              {(scpStock.part.godown_stocks || []).length > 0 && (
+                <ul className="mt-1 text-[11px] text-slate-500">
+                  {scpStock.part.godown_stocks.map((g) => (
+                    <li key={g.warehouse_id}>{g.warehouse_name}: <strong className="text-slate-700">{Number(g.quantity).toLocaleString('en-IN', { maximumFractionDigits: 3 })}</strong></li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { key: 'add', label: 'Add stock', hint: 'Opening / received quantity' },
+                { key: 'set', label: 'Physical count', hint: 'Set godown balance to exactly' },
+              ].map((m) => (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => setScpStock({ ...scpStock, mode: m.key })}
+                  className={`text-left p-2.5 rounded-xl border cursor-pointer ${
+                    scpStock.mode === m.key ? 'bg-emerald-50 border-emerald-400 text-emerald-900' : 'bg-white border-slate-200 text-slate-700'
+                  }`}
+                >
+                  <span className="block font-bold">{m.label}</span>
+                  <span className="block text-[10px] text-slate-500">{m.hint}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Godown *</label>
+                <select
+                  value={scpStock.warehouse_id}
+                  onChange={(e) => setScpStock({ ...scpStock, warehouse_id: e.target.value })}
+                  className="w-full bg-white rounded-xl px-3 py-2 text-slate-900 border border-slate-300 font-semibold"
+                  required
+                >
+                  {scpStockGodowns.length === 0 && <option value="">Loading godowns...</option>}
+                  {scpStockGodowns.map((w) => (
+                    <option key={w.id} value={w.id}>{w.warehouse_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">
+                  {scpStock.mode === 'set' ? 'Counted quantity in godown *' : 'Quantity to add *'}
+                </label>
+                <input
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  value={scpStock.quantity}
+                  onChange={(e) => setScpStock({ ...scpStock, quantity: e.target.value })}
+                  className="w-full bg-white rounded-xl px-3 py-2 text-slate-900 border border-slate-300 font-mono font-bold"
+                  required
+                />
+              </div>
+            </div>
+
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={scpStock.update_parent}
+                onChange={(e) => setScpStock({ ...scpStock, update_parent: e.target.checked })}
+                className="w-4 h-4 mt-0.5 rounded text-emerald-600 border-slate-300"
+              />
+              <span className="text-slate-700">
+                <strong>Also update the {scpStock.part.kind === 'sku' ? 'parent finished good' : 'master child part'}'s godown stock</strong>
+                <span className="block text-[10px] text-slate-500">
+                  Keep ticked for new stock. Untick only if this quantity is already counted in the master child part (you are just splitting existing stock into types).
+                </span>
+              </span>
+            </label>
+
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Remarks</label>
+              <input
+                type="text"
+                value={scpStock.remarks}
+                onChange={(e) => setScpStock({ ...scpStock, remarks: e.target.value })}
+                placeholder="e.g. Opening balance, stock count 16-Nov"
+                className="w-full bg-white rounded-xl px-3 py-2 text-slate-900 border border-slate-300"
+              />
+            </div>
+          </form>
+        )}
       </Modal>
 
       {/* Bulk CSV Import Modal for Raw Materials */}

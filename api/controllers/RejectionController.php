@@ -447,7 +447,7 @@ class RejectionController {
     private static function addRepairedToStock(PDO $db, array $lot, float $qty, int $warehouseId, string $by, ?int $userId): array {
         $plan = null;
         try {
-            $st = $db->prepare("SELECT pr.id AS release_id, pr.stage_tracking, pp.warehouse_id, pp.fg_id, COALESCE(pp.item_type, 'FG') AS item_type, pp.rm_id
+            $st = $db->prepare("SELECT pr.id AS release_id, pr.stage_tracking, pp.warehouse_id, pp.fg_id, COALESCE(pp.item_type, 'FG') AS item_type, pp.rm_id, pp.sub_sku_id
                                 FROM planning_releases pr JOIN production_planning pp ON pp.id = pr.planning_id
                                 WHERE pr.id = ? OR pr.release_number = ? LIMIT 1");
             $st->execute([(int)($lot['release_id'] ?? 0), $lot['batch_no']]);
@@ -477,6 +477,12 @@ class RejectionController {
             (float)($item['rate'] ?? 0), 'PRODUCTION_OUTPUT', $lot['lot_number'], $lot['batch_no'], $lot['lot_number'], date('Y-m-d'),
             "Repaired rejection {$lot['lot_number']}: {$qty} pcs OK (rejected at {$lot['source_stage_name']}). By {$by}", $userId
         );
+
+        // OEM brand batch: repaired pieces also go into that brand's own stock (same as a finished batch)
+        if (!$isRM && !empty($plan['sub_sku_id']) && class_exists('SubSkuStockService')) {
+            SubSkuStockService::move((int)$plan['sub_sku_id'], $wh, $qty, 'PRODUCTION_OUTPUT', $lot['lot_number'],
+                "Repaired rejection {$lot['lot_number']} (Batch {$lot['batch_no']})", $userId);
+        }
 
         // SKU tracking sheet: count the repaired pieces as Ready
         if ($plan && !empty($plan['stage_tracking'])) {

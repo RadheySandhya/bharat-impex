@@ -87,18 +87,29 @@ class SalesController {
             $effectiveRate = $rate ?: (float)$fg['selling_price'];
             $amount = round($quantity * $effectiveRate, 2);
 
+            // OEM brand sale: dispatch from that brand's own godown stock
+            $subSkuId = !empty($input['sub_sku_id']) ? (int)$input['sub_sku_id'] : null;
+            $saleName = $fg['product_name'];
+            if ($subSkuId) {
+                $oem = SubSkuStockService::requireForFg($subSkuId, $fgId);
+                SubSkuStockService::move($subSkuId, $warehouseId, -$quantity, 'SALE', $invoiceNumber,
+                    "Direct Sale: {$customerName} (Inv: {$invoiceNumber})", $user['id'], SubSkuStockService::negativeAllowed());
+                $saleName = $oem['sub_sku_name'];
+            }
+
             // Record Sales Line
             $db->prepare("
                 INSERT INTO sale_inputs (
                     sale_date, invoice_number, customer_name, tally_item_name,
-                    fg_id, fg_code, warehouse_id, quantity, unit_id, rate, amount, source, created_by, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL_ENTRY', ?, NOW())
+                    fg_id, sub_sku_id, fg_code, warehouse_id, quantity, unit_id, rate, amount, source, created_by, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL_ENTRY', ?, NOW())
             ")->execute([
                 $saleDate,
                 $invoiceNumber,
                 $customerName,
-                $fg['product_name'],
+                $saleName,
                 $fgId,
+                $subSkuId,
                 $fg['fg_code'],
                 $warehouseId,
                 $quantity,

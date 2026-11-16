@@ -119,6 +119,31 @@ export function InOut() {
     return g ? (parseFloat(g.quantity) || 0) : 0;
   };
 
+  // OEM brand picker for a finished-good row whose SKU is made for several brands
+  const renderOemPicker = (row, itemObj, originalIdx) => {
+    if (row.material_type !== 'FG') return null;
+    const brands = itemObj?.oem_brands || [];
+    if (brands.length === 0) return null;
+    const value = row.sub_sku_id ? `sub_${row.sub_sku_id}` : 'OWN';
+    return (
+      <div className="mt-1 flex items-center gap-1.5">
+        <span className="text-[10px] font-bold text-purple-700 whitespace-nowrap">Brand / OEM:</span>
+        <select
+          value={value}
+          onChange={(e) => handleCellChange(originalIdx, 'item_selection', e.target.value === 'OWN' ? String(itemObj.id) : e.target.value)}
+          className="min-w-0 flex-1 bg-purple-50 border border-purple-200 text-purple-900 rounded-md px-1.5 py-0.5 text-[10px] font-bold cursor-pointer"
+        >
+          <option value="OWN">Own brand (generic stock)</option>
+          {brands.map((b) => (
+            <option key={b.sub_sku_id} value={`sub_${b.sub_sku_id}`}>
+              {b.brand_name} — {b.sub_sku_name} (stock {Number(b.current_stock || 0)})
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  };
+
   const warehouseName = (id) => {
     const w = warehouses.find((x) => String(x.id) === String(id));
     return w ? w.warehouse_name : '';
@@ -811,7 +836,7 @@ export function InOut() {
                 const candidateItems = row.material_type === 'RM' ? rawMaterials : finishedGoods;
                 const itemObj = candidateItems.find((it) => String(it.id) === String(row.item_id));
                 const amount = (parseFloat(row.quantity || 0) * parseFloat(row.rate || 0)).toFixed(2);
-                const godownQty = row.sub_child_part_id ? null : getGodownQty(itemObj, row.warehouse_id);
+                const godownQty = row.sub_child_part_id ? null : getGodownQty(row.sub_sku_id ? (subSkus.find((s) => Number(s.sub_sku_id) === Number(row.sub_sku_id)) || null) : itemObj, row.warehouse_id);
                 const shownStock = godownQty !== null ? godownQty : (parseFloat(row.current_stock) || 0);
                 const isLowStock = isOut && shownStock < parseFloat(row.quantity || 0);
 
@@ -1003,6 +1028,7 @@ export function InOut() {
                             Live Stock: {shownStock} {row.unit_code || 'PCS'}
                           </span>
                         </div>
+                        {renderOemPicker(row, itemObj, originalIdx)}
                       </div>
 
                       {/* 3. Godown & Date (2 columns) */}
@@ -1253,7 +1279,7 @@ export function InOut() {
                       const candidateItems = row.material_type === 'RM' ? rawMaterials : finishedGoods;
                       const itemObj = candidateItems.find(it => String(it.id) === String(row.item_id));
                       const amount = (parseFloat(row.quantity || 0) * parseFloat(row.rate || 0)).toFixed(2);
-                      const godownQty = row.sub_child_part_id ? null : getGodownQty(itemObj, row.warehouse_id);
+                      const godownQty = row.sub_child_part_id ? null : getGodownQty(row.sub_sku_id ? (subSkus.find((s) => Number(s.sub_sku_id) === Number(row.sub_sku_id)) || null) : itemObj, row.warehouse_id);
                       const shownStock = godownQty !== null ? godownQty : (parseFloat(row.current_stock) || 0);
                       const isLowStock = isOut && shownStock < parseFloat(row.quantity || 0);
 
@@ -1417,6 +1443,7 @@ export function InOut() {
                                     </div>
                                   ) : null
                                 )}
+                                {renderOemPicker(row, itemObj, originalIdx)}
                               </div>
 
                               {/* Quick Action Buttons Beside Item Name */}

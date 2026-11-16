@@ -80,6 +80,17 @@ class SubSKUController {
         $stmt->execute($params);
         $subSkus = $stmt->fetchAll();
 
+        // OEM brand stock (own godown-wise balance of each Sub-SKU)
+        SubSkuStockService::ensureSchema();
+        $ids = array_column($subSkus, 'id');
+        $tot = SubSkuStockService::totals($ids);
+        $byWh = SubSkuStockService::stockByWarehouse($ids);
+        foreach ($subSkus as &$s) {
+            $s['current_stock'] = $tot[(int)$s['id']] ?? 0.0;
+            $s['godown_stocks'] = $byWh[(int)$s['id']] ?? [];
+        }
+        unset($s);
+
         // Also fetch list of unique brands for quick filter pills
         $brandsStmt = $db->query("SELECT DISTINCT brand_name FROM sub_skus WHERE active = 1 ORDER BY brand_name ASC");
         $brands = $brandsStmt->fetchAll(PDO::FETCH_COLUMN);
@@ -202,10 +213,113 @@ class SubSKUController {
         }
 
         $db = Database::getConnection();
+        SubSkuStockService::ensureSchema();
+
+        // A brand that has stock history is deactivated (history kept), never hard-deleted
+        $hist = $db->prepare("SELECT (SELECT COUNT(*) FROM sub_sku_ledger WHERE sub_sku_id = ?) + (SELECT COUNT(*) FROM sale_inputs WHERE sub_sku_id = ?)");
+        $hist->execute([$id, $id]);
+        if ((int)$hist->fetchColumn() > 0) {
+            $db->prepare("UPDATE sub_skus SET active = 0, updated_at = NOW() WHERE id = ?")->execute([$id]);
+            Response::success(null, 'This OEM SKU has stock / sales history, so it was deactivated instead of deleted.');
+        }
+
         $stmt = $db->prepare("DELETE FROM sub_skus WHERE id = ?");
         $stmt->execute([$id]);
 
         Response::success(null, 'Sub-SKU mapping removed successfully.');
+    }
+
+    /**
+     * GET /api/sub-skus/stock?id=X — godown-wise balance + recent movements of one OEM brand SKU
+     */
+    public static function stock(): void {
+        Auth::requireAuth();
+        $db = Database::getConnection();
+        SubSkuStockService::ensureSchema();
+        $id = (int)($_GET['id'] ?? 0);
+        if (!$id) Response::error('Sub-SKU ID is required.', null, 400);
+
+        $ledger = $db->prepare("
+            SELECT l.*, w.warehouse_name FROM sub_sku_ledger l
+            LEFT JOIN warehouses w ON w.id = l.warehouse_id
+            WHERE l.sub_sku_id = ? ORDER BY l.id DESC LIMIT 100
+        ");
+        $ledger->execute([$id]);
+        Response::success([
+            'id'            => $id,
+            'godown_stocks' => SubSkuStockService::stockByWarehouse([$id])[$id] ?? [],
+            'ledger'        => $ledger->fetchAll(),
+        ]);
+    }
+
+    /**
+     * POST /api/sub-skus/stock
+     * { id, warehouse_id, quantity, mode: 'add' | 'set', update_parent: bool, remarks }
+     * With update_parent (default true) the parent finished good's godown stock moves by the same
+     * difference, so the parent always equals own-brand + every OEM brand.
+     */
+    public static function updateStock(): void {
+        $user = Auth::requireAuth();
+        $db = Database::getConnection();
+        SubSkuStockService::ensureSchema();
+
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id = (int)($input['id'] ?? 0);
+        $qty = round((float)($input['quantity'] ?? 0), 3);
+        $mode = strtolower(trim($input['mode'] ?? 'add')) === 'set' ? 'set' : 'add';
+        $updateParent = !isset($input['update_parent']) || !empty($input['update_parent']);
+        $remarks = trim((string)($input['remarks'] ?? ''));
+
+        if (!$id) Response::error('Sub-SKU ID is required.', null, 400);
+        if ($qty < 0 || ($mode === 'add' && $qty <= 0)) {
+            Response::error($mode === 'add' ? 'Quantity to add must be greater than zero.' : 'Quantity cannot be negative.', null, 400);
+        }
+
+        $st = $db->prepare("SELECT s.*, fg.fg_code, fg.product_name, fg.unit_id, fg.selling_price AS fg_price
+                            FROM sub_skus s JOIN finished_goods fg ON fg.id = s.parent_fg_id WHERE s.id = ?");
+        $st->execute([$id]);
+        $sku = $st->fetch();
+        if (!$sku) Response::error('Sub-SKU not found.', null, 404);
+
+        $warehouseId = InventoryService::getValidWarehouseId((int)($input['warehouse_id'] ?? 0));
+        $current = SubSkuStockService::available($id, $warehouseId);
+        $delta = $mode === 'set' ? round($qty - $current, 3) : $qty;
+        if ($delta == 0.0) {
+            Response::success(['quantity' => $current, 'warehouse_id' => $warehouseId], 'No change - godown balance already matches.');
+        }
+
+        $label = "[{$sku['brand_name']}] {$sku['sub_sku_name']}";
+        $ref = ($mode === 'set' ? 'SKU-ADJ-' : 'SKU-OPN-') . strtoupper(bin2hex(random_bytes(4)));
+        $note = ($mode === 'set' ? 'Physical count' : 'Stock added') . " for OEM SKU {$label}" . ($remarks ? " - {$remarks}" : '');
+
+        $db->beginTransaction();
+        try {
+            $newQty = SubSkuStockService::move($id, $warehouseId, $delta,
+                $mode === 'set' ? ($delta > 0 ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT') : 'OPENING', $ref, $note, $user['id'], false);
+
+            if ($updateParent) {
+                $unitId = InventoryService::resolveUnitId((int)$sku['unit_id'], 'PCS');
+                $rate = (float)($sku['selling_price'] ?: $sku['fg_price']);
+                if ($delta > 0) {
+                    InventoryService::increaseStock('FG', (int)$sku['parent_fg_id'], $sku['fg_code'], $sku['product_name'],
+                        $warehouseId, $delta, $unitId, $rate, $mode === 'set' ? 'ADJUSTMENT_IN' : 'OPENING',
+                        $ref, $ref, null, date('Y-m-d'), $note, $user['id']);
+                } else {
+                    InventoryService::decreaseStock('FG', (int)$sku['parent_fg_id'], $sku['fg_code'],
+                        $warehouseId, -$delta, $unitId, $rate, 'ADJUSTMENT_OUT', $ref, $ref, null, date('Y-m-d'), $note, $user['id'], true);
+                }
+            }
+            $db->commit();
+        } catch (Exception $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            Response::error($e->getMessage(), null, 400);
+        }
+
+        AuditService::log('SUB_SKU_STOCK_' . strtoupper($mode), 'INVENTORY', $ref, ['quantity' => $current], [
+            'sub_sku_id' => $id, 'warehouse_id' => $warehouseId, 'quantity' => $newQty, 'parent_updated' => $updateParent
+        ]);
+        Response::success(['quantity' => $newQty, 'warehouse_id' => $warehouseId, 'difference' => $delta],
+            "Stock of {$label} in " . InventoryService::warehouseLabel($warehouseId) . " is now {$newQty}.");
     }
 
     /**

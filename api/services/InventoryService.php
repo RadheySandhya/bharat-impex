@@ -65,6 +65,115 @@ class InventoryService {
         }
     }
 
+    private static bool $mastersEnsured = false;
+
+    /**
+     * Self-heal core master tables that every stock / item row depends on through foreign keys.
+     * A data reset can leave `units` or `warehouses` empty; then every Child Part / SKU insert
+     * fails with "1452 Cannot add or update a child row ... REFERENCES units(id)".
+     * Defaults are inserted with the fixed ids the application relies on (PCS = 3, RM store = 1, FG hub = 3).
+     */
+    public static function ensureMasterData(): void {
+        if (self::$mastersEnsured) return;
+        self::$mastersEnsured = true;
+        $db = Database::getConnection();
+
+        try {
+            if ((int)$db->query("SELECT COUNT(*) FROM units")->fetchColumn() === 0) {
+                $db->exec("
+                    INSERT IGNORE INTO units (id, unit_code, unit_name, decimal_allowed, active) VALUES
+                    (1, 'KG', 'Kilogram', 1, 1),
+                    (2, 'GRAM', 'Gram', 1, 1),
+                    (3, 'PCS', 'Pieces', 0, 1),
+                    (4, 'MTR', 'Meter', 1, 1),
+                    (5, 'LTR', 'Liter', 1, 1),
+                    (6, 'BOX', 'Box / Carton', 0, 1),
+                    (7, 'SET', 'Set', 0, 1),
+                    (8, 'DOZEN', 'Dozen', 0, 1)
+                ");
+            }
+        } catch (Exception $e) {
+            error_log('Units self-heal failed: ' . $e->getMessage());
+        }
+
+        try {
+            if ((int)$db->query("SELECT COUNT(*) FROM warehouses")->fetchColumn() === 0) {
+                $db->exec("
+                    INSERT IGNORE INTO warehouses (id, warehouse_code, warehouse_name, location, is_default, active) VALUES
+                    (1, 'WH-MAIN', 'Main Child Part Store', 'Factory', 1, 1),
+                    (2, 'WH-FACTORY', 'Shopfloor & WIP Store', 'Factory', 0, 1),
+                    (3, 'WH-FG', 'Finished Goods Godown', 'Factory', 0, 1)
+                ");
+            }
+        } catch (Exception $e) {
+            error_log('Warehouses self-heal failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Return a unit id that really exists in `units`, so foreign keys never fail.
+     * Order: valid requested id -> unit code (created on the fly if unknown, e.g. "NOS") -> PCS -> first unit.
+     */
+    public static function resolveUnitId($requestedId = null, ?string $unitCode = null): int {
+        self::ensureMasterData();
+        $db = Database::getConnection();
+
+        $requestedId = (int)$requestedId;
+        if ($requestedId > 0) {
+            $st = $db->prepare("SELECT id FROM units WHERE id = ?");
+            $st->execute([$requestedId]);
+            if ($id = $st->fetchColumn()) return (int)$id;
+        }
+
+        $code = strtoupper(trim((string)$unitCode));
+        $aliases = ['PC' => 'PCS', 'PIECE' => 'PCS', 'PIECES' => 'PCS', 'NOS' => 'PCS', 'NO' => 'PCS', 'KGS' => 'KG', 'GM' => 'GRAM', 'GMS' => 'GRAM', 'MTRS' => 'MTR', 'METER' => 'MTR', 'LITRE' => 'LTR', 'LITER' => 'LTR', 'SETS' => 'SET', 'BOXES' => 'BOX', 'CARTON' => 'BOX', 'DOZ' => 'DOZEN'];
+        if ($code !== '') {
+            $lookup = [$code];
+            if (isset($aliases[$code])) $lookup[] = $aliases[$code];
+            foreach ($lookup as $c) {
+                $st = $db->prepare("SELECT id FROM units WHERE UPPER(unit_code) = ? OR UPPER(unit_name) = ? LIMIT 1");
+                $st->execute([$c, $c]);
+                if ($id = $st->fetchColumn()) return (int)$id;
+            }
+            if (strlen($code) <= 20 && preg_match('/^[A-Z0-9 .\/_-]+$/', $code)) {
+                $db->prepare("INSERT IGNORE INTO units (unit_code, unit_name, decimal_allowed, active) VALUES (?, ?, 1, 1)")
+                   ->execute([$code, $code]);
+                $st = $db->prepare("SELECT id FROM units WHERE UPPER(unit_code) = ? LIMIT 1");
+                $st->execute([$code]);
+                if ($id = $st->fetchColumn()) return (int)$id;
+            }
+        }
+
+        $id = $db->query("SELECT id FROM units WHERE UPPER(unit_code) = 'PCS' LIMIT 1")->fetchColumn();
+        if ($id) return (int)$id;
+        return (int)$db->query("SELECT id FROM units ORDER BY id ASC LIMIT 1")->fetchColumn();
+    }
+
+    /**
+     * Return a category id for a name, creating the category when it does not exist yet.
+     */
+    public static function resolveCategoryId(?string $name, string $type = 'BOTH'): ?int {
+        $name = trim((string)$name);
+        if ($name === '') return null;
+        $db = Database::getConnection();
+        $st = $db->prepare("SELECT id FROM categories WHERE LOWER(category_name) = LOWER(?) LIMIT 1");
+        $st->execute([$name]);
+        if ($id = $st->fetchColumn()) return (int)$id;
+
+        $type = in_array($type, ['RM', 'FG', 'BOTH'], true) ? $type : 'BOTH';
+        $base = 'CAT-' . strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $name), 0, 10) ?: 'GEN');
+        $code = $base;
+        for ($i = 2; $i < 100; $i++) {
+            $chk = $db->prepare("SELECT 1 FROM categories WHERE category_code = ?");
+            $chk->execute([$code]);
+            if (!$chk->fetchColumn()) break;
+            $code = $base . '-' . $i;
+        }
+        $db->prepare("INSERT INTO categories (category_name, category_code, category_type, active) VALUES (?, ?, ?, 1)")
+           ->execute([$name, $code, $type]);
+        return (int)$db->lastInsertId();
+    }
+
     /**
      * Find the stock row id for a material in a warehouse.
      */

@@ -391,6 +391,12 @@ export const api = {
       const q = new URLSearchParams(params).toString();
       return request(`/sub-skus?${q}`);
     },
+    getStock: (id) => request(`/sub-skus/stock?id=${encodeURIComponent(id)}`),
+    // data: { id, warehouse_id, quantity, mode: 'add' | 'set', update_parent, remarks }
+    updateStock: (data) => request('/sub-skus/stock', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
     save: (data) => request('/sub-skus', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -418,6 +424,12 @@ export const api = {
     delete: (id) => request('/sub-child-parts/delete', {
       method: 'POST',
       body: JSON.stringify({ id }),
+    }),
+    getStock: (id) => request(`/sub-child-parts/stock?id=${encodeURIComponent(id)}`),
+    // data: { id, warehouse_id, quantity, mode: 'add' | 'set', update_parent, remarks }
+    updateStock: (data) => request('/sub-child-parts/stock', {
+      method: 'POST',
+      body: JSON.stringify(data),
     }),
   },
 

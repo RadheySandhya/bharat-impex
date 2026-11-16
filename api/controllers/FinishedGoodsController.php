@@ -53,7 +53,7 @@ class FinishedGoodsController {
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
 
         $name = trim($input['product_name'] ?? '');
-        $unitId = (int)($input['unit_id'] ?? 0) ?: 3; // default PCS
+        $unitId = InventoryService::resolveUnitId($input['unit_id'] ?? 0, $input['unit_code'] ?? 'PCS');
         $categoryId = !empty($input['category_id']) ? (int)$input['category_id'] : null;
         $sellingPrice = (float)($input['selling_price'] ?? 0);
         $minStock = (float)($input['minimum_stock'] ?? 0);
@@ -121,7 +121,7 @@ class FinishedGoodsController {
             trim($input['product_name']),
             trim($input['description'] ?? ''),
             !empty($input['category_id']) ? (int)$input['category_id'] : null,
-            (int)$input['unit_id'],
+            InventoryService::resolveUnitId($input['unit_id'] ?? 0, $input['unit_code'] ?? 'PCS'),
             (float)($input['selling_price'] ?? 0),
             (float)($input['minimum_stock'] ?? 0),
             (float)($input['reorder_level'] ?? 0),
@@ -207,18 +207,10 @@ class FinishedGoodsController {
 
         $db->beginTransaction();
         try {
-            // Pre-fetch units and categories
-            $unitMap = [];
-            $uStmt = $db->query("SELECT id, UPPER(unit_code) as ucode FROM units");
-            while ($u = $uStmt->fetch()) {
-                $unitMap[$u['ucode']] = (int)$u['id'];
-            }
-
-            $catMap = [];
-            $cStmt = $db->query("SELECT id, LOWER(category_name) as cname FROM categories");
-            while ($c = $cStmt->fetch()) {
-                $catMap[$c['cname']] = (int)$c['id'];
-            }
+            // Units / categories are resolved per row against the real master tables
+            // (unknown unit codes & category names are created, never a dangling id)
+            $unitCache = [];
+            $catCache = [];
 
             $createdCount = 0;
             $updatedCount = 0;
@@ -236,11 +228,19 @@ class FinishedGoodsController {
                 $hsn = trim((string)($item['hsn_code'] ?? ''));
 
                 $uCode = strtoupper(trim((string)($item['unit_code'] ?? $item['unit'] ?? 'PCS')));
-                $unitId = (int)($item['unit_id'] ?? 0);
-                if ($unitId <= 0) $unitId = $unitMap[$uCode] ?? 1;
+                $uKey = ((int)($item['unit_id'] ?? 0)) . '|' . $uCode;
+                $unitId = $unitCache[$uKey] ??= InventoryService::resolveUnitId($item['unit_id'] ?? 0, $uCode ?: 'PCS');
 
-                $catName = strtolower(trim((string)($item['category_name'] ?? $item['category'] ?? '')));
-                $catId = !empty($item['category_id']) ? (int)$item['category_id'] : ($catMap[$catName] ?? null);
+                $catName = trim((string)($item['category_name'] ?? $item['category'] ?? ''));
+                if (!empty($item['category_id'])) {
+                    $catId = (int)$item['category_id'];
+                } else {
+                    $cKey = strtolower($catName);
+                    if (!array_key_exists($cKey, $catCache)) {
+                        $catCache[$cKey] = InventoryService::resolveCategoryId($catName, 'FG');
+                    }
+                    $catId = $catCache[$cKey];
+                }
 
                 // Check existing by id or code
                 $existingId = null;
@@ -283,7 +283,11 @@ class FinishedGoodsController {
                     if (empty($code)) {
                         $seqStmt = $db->query("SELECT COALESCE(MAX(id), 0) FROM finished_goods");
                         $nextSeq = (int)$seqStmt->fetchColumn() + 1;
-                        $code = 'FG-' . str_pad($nextSeq, 6, '0', STR_PAD_LEFT);
+                        do {
+                            $code = 'FG-' . str_pad($nextSeq++, 6, '0', STR_PAD_LEFT);
+                            $dup = $db->prepare("SELECT 1 FROM finished_goods WHERE fg_code = ?");
+                            $dup->execute([$code]);
+                        } while ($dup->fetchColumn());
                     }
                     $ins = $db->prepare("
                         INSERT INTO finished_goods (
@@ -307,7 +311,7 @@ class FinishedGoodsController {
                 'total'         => $createdCount + $updatedCount
             ], "Bulk Finished Goods import complete: {$createdCount} created, {$updatedCount} updated.");
         } catch (Exception $e) {
-            $db->rollBack();
+            if ($db->inTransaction()) $db->rollBack();
             Response::error('Failed to import finished goods: ' . $e->getMessage(), null, 400);
         }
     }

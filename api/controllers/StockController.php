@@ -228,7 +228,7 @@ class StockController {
         $matName = $input['material_name'] ?? '';
         $warehouseId = (int)($input['warehouse_id'] ?? 1);
         $physicalQty = (float)($input['physical_quantity'] ?? 0);
-        $unitId = (int)($input['unit_id'] ?? 3); // default PCS
+        $unitId = InventoryService::resolveUnitId($input['unit_id'] ?? 0, $input['unit_code'] ?? 'PCS');
         $reason = trim($input['reason'] ?? 'Physical Verification');
         $remarks = trim($input['remarks'] ?? '');
 
@@ -379,7 +379,7 @@ class StockController {
         $matName = $input['material_name'] ?? '';
         $warehouseId = (int)($input['warehouse_id'] ?? 1);
         $quantity = (float)($input['quantity'] ?? 0);
-        $unitId = (int)($input['unit_id'] ?? 3); // default PCS
+        $unitId = InventoryService::resolveUnitId($input['unit_id'] ?? 0, $input['unit_code'] ?? 'PCS');
         $rate = (float)($input['rate'] ?? 0.0);
         $remarks = trim($input['remarks'] ?? 'Opening balance initialization');
 
@@ -1089,6 +1089,7 @@ class StockController {
         // 4.2 Fetch Sub-Child Parts (Brand Variants e.g. Somany, Prince Pipe)
         $variantsByRmId = [];
         try {
+            $scpGodowns = SubChildStockService::stockByWarehouse();
             $scpStmt = $db->query("
                 SELECT 
                     scp.id,
@@ -1120,6 +1121,29 @@ class StockController {
                     'standard_rate'        => (float)$scp['standard_rate'],
                     'current_stock'        => (float)$scp['current_stock'],
                     'mapped_customer_name' => $scp['mapped_customer_name'] ?? null,
+                    'godown_stocks'        => $scpGodowns[(int)$scp['id']] ?? [],
+                ];
+            }
+        } catch (Exception $e) {}
+
+        // 4.25 OEM brand Sub-SKUs of each Finished Good, with their own godown stock
+        $oemByFgId = [];
+        try {
+            $oemRows = $db->query("SELECT id, parent_fg_id, sub_sku_code, sub_sku_name, brand_name, client_item_code, selling_price
+                                   FROM sub_skus WHERE active = 1 ORDER BY brand_name, sub_sku_name")->fetchAll();
+            $oIds = array_column($oemRows, 'id');
+            $oTot = SubSkuStockService::totals($oIds);
+            $oWh  = SubSkuStockService::stockByWarehouse($oIds);
+            foreach ($oemRows as $o) {
+                $oemByFgId[(int)$o['parent_fg_id']][] = [
+                    'id'               => (int)$o['id'],
+                    'sub_sku_code'     => $o['sub_sku_code'],
+                    'sub_sku_name'     => $o['sub_sku_name'],
+                    'brand_name'       => $o['brand_name'],
+                    'client_item_code' => $o['client_item_code'],
+                    'selling_price'    => (float)$o['selling_price'],
+                    'current_stock'    => $oTot[(int)$o['id']] ?? 0.0,
+                    'godown_stocks'    => $oWh[(int)$o['id']] ?? [],
                 ];
             }
         } catch (Exception $e) {}
@@ -1266,6 +1290,7 @@ class StockController {
                 'day_stock'       => $dayStock,
                 'godown_stocks'   => $stocksByMatKey[$matKey] ?? [],
                 'variants'        => ($p['material_type'] === 'RM') ? ($variantsByRmId[$matId] ?? []) : [],
+                'oem_brands'      => ($p['material_type'] === 'FG') ? ($oemByFgId[$matId] ?? []) : [],
                 'bom_child_parts' => ($p['material_type'] === 'FG') ? ($bomByFgId[$matId] ?? []) : []
             ];
         }

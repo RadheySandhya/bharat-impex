@@ -38,10 +38,8 @@ class SubChildPartController {
             ";
             $db->exec($sql);
 
-            // Self-healing: Ensure current_stock column exists if table was created previously
-            try {
-                $db->exec("ALTER TABLE `sub_child_parts` ADD COLUMN `current_stock` DECIMAL(14, 3) NOT NULL DEFAULT 0.000 AFTER `standard_rate`");
-            } catch (Exception $e2) {}
+            // current_stock column + godown-wise variant stock tables
+            SubChildStockService::ensureSchema();
         } catch (Exception $e) {
             // Silently ignore if already exists or permission issue
         }
@@ -129,6 +127,14 @@ class SubChildPartController {
         $stmt->execute($params);
         $parts = $stmt->fetchAll();
 
+        // Godown-wise stock of every variant
+        $byWh = SubChildStockService::stockByWarehouse(array_column($parts, 'id'));
+        foreach ($parts as &$p) {
+            $p['current_stock'] = (float)$p['current_stock'];
+            $p['godown_stocks'] = $byWh[(int)$p['id']] ?? [];
+        }
+        unset($p);
+
         // Get distinct brands for filter chips
         $brandStmt = $db->query("
             SELECT DISTINCT brand_name 
@@ -194,9 +200,7 @@ class SubChildPartController {
             $subPartCode = ($brandPrefix ?: 'SCP') . '-' . strtoupper(substr(uniqid(), -5));
         }
 
-        if ($unitId <= 0) {
-            $unitId = (int)($parentRm['unit_id'] ?? 3);
-        }
+        $unitId = InventoryService::resolveUnitId($unitId > 0 ? $unitId : (int)($parentRm['unit_id'] ?? 0), 'PCS');
 
         if ($standardRate <= 0) {
             $standardRate = (float)$parentRm['standard_rate'];
@@ -271,5 +275,137 @@ class SubChildPartController {
         $stmt->execute([$id]);
 
         Response::success(['id' => $id], 'Sub-Child Part archived successfully.');
+    }
+
+    /**
+     * GET /api/sub-child-parts/stock?id=X
+     * Godown-wise balance + recent movement ledger of one sub-child part.
+     */
+    public static function stock(): void {
+        Auth::requireAuth();
+        $db = Database::getConnection();
+        self::ensureTable($db);
+
+        $id = (int)($_GET['id'] ?? 0);
+        if (!$id) {
+            Response::error('Sub-Child Part ID is required.', null, 400);
+            return;
+        }
+
+        $ledger = $db->prepare("
+            SELECT l.*, w.warehouse_name
+            FROM sub_child_part_ledger l
+            LEFT JOIN warehouses w ON w.id = l.warehouse_id
+            WHERE l.sub_child_part_id = ?
+            ORDER BY l.id DESC
+            LIMIT 100
+        ");
+        $ledger->execute([$id]);
+
+        Response::success([
+            'id'            => $id,
+            'godown_stocks' => SubChildStockService::stockByWarehouse([$id])[$id] ?? [],
+            'ledger'        => $ledger->fetchAll(),
+        ]);
+    }
+
+    /**
+     * POST /api/sub-child-parts/stock
+     * { id, warehouse_id, quantity, mode: 'add' | 'set', update_parent: bool, remarks }
+     *  - add : put more stock of this sub-child part into the godown (opening / receipt)
+     *  - set : physical count — set the godown balance to exactly this quantity
+     * With update_parent (default true) the parent child part's godown stock moves by the
+     * same difference, so the parent always equals generic + all its sub-child parts.
+     */
+    public static function updateStock(): void {
+        $user = Auth::requireAuth();
+        $db = Database::getConnection();
+        self::ensureTable($db);
+
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id = (int)($input['id'] ?? 0);
+        $qty = round((float)($input['quantity'] ?? 0), 3);
+        $mode = strtolower(trim($input['mode'] ?? 'add')) === 'set' ? 'set' : 'add';
+        $updateParent = !isset($input['update_parent']) || !empty($input['update_parent']);
+        $remarks = trim((string)($input['remarks'] ?? ''));
+
+        if (!$id) {
+            Response::error('Sub-Child Part ID is required.', null, 400);
+            return;
+        }
+        if ($qty < 0 || ($mode === 'add' && $qty <= 0)) {
+            Response::error($mode === 'add' ? 'Quantity to add must be greater than zero.' : 'Quantity cannot be negative.', null, 400);
+            return;
+        }
+
+        $st = $db->prepare("
+            SELECT scp.*, rm.rm_code, rm.material_name, rm.unit_id AS rm_unit_id, rm.standard_rate AS rm_rate
+            FROM sub_child_parts scp
+            JOIN raw_materials rm ON rm.id = scp.parent_rm_id
+            WHERE scp.id = ?
+        ");
+        $st->execute([$id]);
+        $scp = $st->fetch();
+        if (!$scp) {
+            Response::error('Sub-Child Part not found.', null, 404);
+            return;
+        }
+
+        $warehouseId = InventoryService::getValidWarehouseId((int)($input['warehouse_id'] ?? 0));
+        $current = SubChildStockService::available($id, $warehouseId);
+        $delta = $mode === 'set' ? round($qty - $current, 3) : $qty;
+        if ($delta == 0.0) {
+            Response::success(['quantity' => $current, 'warehouse_id' => $warehouseId], 'No change - godown balance already matches.');
+            return;
+        }
+
+        $label = "[{$scp['brand_name']}] {$scp['sub_part_name']}";
+        $ref = ($mode === 'set' ? 'SCP-ADJ-' : 'SCP-OPN-') . strtoupper(bin2hex(random_bytes(4)));
+        $note = ($mode === 'set' ? 'Physical count' : 'Stock added') . " for sub-child part {$label}" . ($remarks ? " - {$remarks}" : '');
+
+        $db->beginTransaction();
+        try {
+            $newQty = SubChildStockService::move(
+                $id, $warehouseId, $delta,
+                $mode === 'set' ? ($delta > 0 ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT') : 'OPENING',
+                $ref, $note, $user['id'], false
+            );
+
+            if ($updateParent) {
+                $unitId = InventoryService::resolveUnitId((int)$scp['rm_unit_id'], 'PCS');
+                $rate = (float)($scp['standard_rate'] ?: $scp['rm_rate']);
+                if ($delta > 0) {
+                    InventoryService::increaseStock(
+                        'RM', (int)$scp['parent_rm_id'], $scp['rm_code'], $scp['material_name'],
+                        $warehouseId, $delta, $unitId, $rate,
+                        $mode === 'set' ? 'ADJUSTMENT_IN' : 'OPENING', $ref, $ref, null, date('Y-m-d'),
+                        $note, $user['id']
+                    );
+                } else {
+                    InventoryService::decreaseStock(
+                        'RM', (int)$scp['parent_rm_id'], $scp['rm_code'],
+                        $warehouseId, -$delta, $unitId, $rate,
+                        'ADJUSTMENT_OUT', $ref, $ref, null, date('Y-m-d'),
+                        $note, $user['id'], true
+                    );
+                }
+            }
+
+            $db->commit();
+        } catch (Exception $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            Response::error($e->getMessage(), null, 400);
+            return;
+        }
+
+        AuditService::log('SUB_CHILD_STOCK_' . strtoupper($mode), 'INVENTORY', $ref, ['quantity' => $current], [
+            'sub_child_part_id' => $id, 'warehouse_id' => $warehouseId, 'quantity' => $newQty, 'parent_updated' => $updateParent
+        ]);
+
+        Response::success([
+            'quantity'     => $newQty,
+            'warehouse_id' => $warehouseId,
+            'difference'   => $delta,
+        ], "Stock of {$label} in " . InventoryService::warehouseLabel($warehouseId) . " is now {$newQty}.");
     }
 }

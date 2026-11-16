@@ -97,7 +97,7 @@ function PlanningCard({ plan, onView, onRelease, onApprove }) {
               {plan.priority}
             </span>
           </div>
-          <p className="font-bold text-slate-900 text-sm leading-tight truncate">{plan.product_name}</p>
+          <p className="font-bold text-slate-900 text-sm leading-tight truncate">{plan.product_name}{plan.oem_brand && <span className="ml-1.5 inline-block align-middle text-[10px] font-black px-1.5 py-0.5 rounded bg-purple-600 text-white">OEM: {plan.oem_brand}</span>}</p>
           <p className="text-[11px] text-slate-400 font-mono">{plan.fg_code}</p>
         </div>
         <div className="text-right shrink-0">
@@ -182,22 +182,35 @@ function NewPlanningModal({ isOpen, onClose, finishedGoods, rawMaterials = [], u
   const { success, error } = useToast();
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
-    item_type: 'FG', fg_id: '', rm_id: '', planned_quantity: '', unit_id: 3, warehouse_id: 3,
+    item_type: 'FG', fg_id: '', rm_id: '', sub_sku_id: '', planned_quantity: '', unit_id: 3, warehouse_id: 3,
     priority: 'NORMAL', required_date: '', remarks: '',
   });
   const isRM = form.item_type === 'RM';
+  const [allOemSkus, setAllOemSkus] = useState([]);
 
-  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  useEffect(() => {
+    if (!isOpen) return;
+    api.subSkus.getAll()
+      .then((res) => setAllOemSkus((res?.data?.sub_skus || []).filter((s) => Number(s.active ?? 1) === 1)))
+      .catch(() => setAllOemSkus([]));
+  }, [isOpen]);
+
+  // OEM brands this finished good is made for (e.g. Pillar Cock → Somany, Jaquar)
+  const oemBrands = !isRM && form.fg_id ? allOemSkus.filter((s) => String(s.parent_fg_id) === String(form.fg_id)) : [];
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v, ...(k === 'fg_id' ? { sub_sku_id: '' } : {}) }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!(isRM ? form.rm_id : form.fg_id) || !form.planned_quantity) { error(`${isRM ? 'Child Part' : 'Finished Good'} and Quantity are required`); return; }
+    if (oemBrands.length > 0 && !form.sub_sku_id) { error('Choose which brand / OEM you are manufacturing this for.'); return; }
     setLoading(true);
     try {
       const res = await api.planning.create({
         ...form,
         fg_id: isRM ? null : Number(form.fg_id),
         rm_id: isRM ? Number(form.rm_id) : null,
+        sub_sku_id: (!isRM && form.sub_sku_id && form.sub_sku_id !== 'OWN') ? Number(form.sub_sku_id) : null,
         planned_quantity: Number(form.planned_quantity),
         unit_id: Number(form.unit_id),
         warehouse_id: Number(form.warehouse_id),
@@ -206,7 +219,7 @@ function NewPlanningModal({ isOpen, onClose, finishedGoods, rawMaterials = [], u
       success(`Planning ${res.data?.planning_number} created!`);
       onCreated(res.data);
       onClose();
-      setForm({ item_type:'FG', fg_id:'', rm_id:'', planned_quantity:'', unit_id:3, warehouse_id:3, priority:'NORMAL', required_date:'', remarks:'' });
+      setForm({ item_type:'FG', fg_id:'', rm_id:'', sub_sku_id:'', planned_quantity:'', unit_id:3, warehouse_id:3, priority:'NORMAL', required_date:'', remarks:'' });
     } catch (err) {
       error(err.message);
     } finally {
@@ -279,6 +292,28 @@ function NewPlanningModal({ isOpen, onClose, finishedGoods, rawMaterials = [], u
               />
             )}
           </div>
+
+          {oemBrands.length > 0 && (
+            <div className="col-span-2">
+              <label className="block font-bold text-slate-700 mb-1">
+                Manufacturing for which brand / OEM? <span className="text-red-500">*</span>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {[{ id: 'OWN', label: 'Own brand (no OEM)', sub: 'Generic stock' },
+                  ...oemBrands.map((s) => ({ id: String(s.id), label: s.brand_name, sub: `${s.sub_sku_name} · stock ${fmt(s.current_stock || 0)}` }))
+                ].map((o) => (
+                  <button key={o.id} type="button" onClick={() => setForm((p) => ({ ...p, sub_sku_id: o.id }))}
+                    className={`text-left px-3 py-2 rounded-xl border cursor-pointer ${
+                      String(form.sub_sku_id) === o.id ? 'bg-blue-50 border-blue-500 text-blue-900 ring-2 ring-blue-200' : 'bg-white border-slate-300 text-slate-700 hover:border-blue-300'
+                    }`}>
+                    <span className="block font-bold text-xs">{o.label}</span>
+                    <span className="block text-[10px] text-slate-500">{o.sub}</span>
+                  </button>
+                ))}
+              </div>
+              {!form.sub_sku_id && <p className="text-[10px] font-bold text-amber-700 mt-1">Required: pick the brand this batch is made for. Finished pieces go into that brand's stock.</p>}
+            </div>
+          )}
 
           <div>
             <label className="block font-bold text-slate-700 mb-1">Planned Quantity <span className="text-red-500">*</span></label>
@@ -431,7 +466,25 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased, warehouses = [] }) {
 
   if (!plan) return null;
 
-  const hasShortage = Boolean(kittingData?.has_shortage);
+  // Sub-child part types of a child part: from the preview (carries stock in the chosen godown), else the master list
+  const variantsFor = (item) => (Array.isArray(item?.variants) && item.variants.length > 0)
+    ? item.variants
+    : subChildParts.filter((s) => Number(s.parent_rm_id) === Number(item?.rm_id));
+
+  // Stock that will actually be issued for a row: the chosen type's godown stock, else the child part's
+  const rowStock = (item) => {
+    const vId = selectedVariants[item.rm_id];
+    const v = vId ? variantsFor(item).find((x) => String(x.id) === String(vId)) : null;
+    if (v && v.available_in_warehouse !== undefined) return { avail: Number(v.available_in_warehouse || 0), variant: v };
+    return { avail: Number(item.available_stock ?? item.current_stock ?? 0), variant: v || null };
+  };
+
+  const kitItems = kittingData?.items || [];
+  const missingVariantItems = autoKitting
+    ? kitItems.filter((it) => variantsFor(it).length > 0 && !selectedVariants[it.rm_id])
+    : [];
+  const hasShortage = Boolean(kittingData?.has_shortage)
+    || kitItems.some((it) => rowStock(it).avail < Number(it.total_required_qty || 0));
   const canSubmit = !hasShortage || allowOverride;
 
   const handleRelease = async (e) => {
@@ -443,12 +496,16 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased, warehouses = [] }) {
       warning('One or more materials are in shortage. Please check Owner Override to proceed.');
       return;
     }
+    if (missingVariantItems.length > 0) {
+      error(`Choose which type to use for: ${missingVariantItems.map((it) => it.material_name).join(', ')}`);
+      return;
+    }
 
     setLoading(true);
     try {
       const preparedKittingItems = (kittingData?.items || []).map(item => {
         const vId = selectedVariants[item.rm_id];
-        const variantObj = vId ? subChildParts.find(s => String(s.id) === String(vId)) : null;
+        const variantObj = vId ? variantsFor(item).find(s => String(s.id) === String(vId)) : null;
         return {
           ...item,
           sub_child_part_id: vId ? Number(vId) : null,
@@ -527,7 +584,7 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased, warehouses = [] }) {
             </div>
             <span className="text-[10px] text-slate-500 font-bold">Target WH: WH-FG</span>
           </div>
-          <p className="font-bold text-slate-900 text-sm">[{plan.fg_code}] {plan.product_name}</p>
+          <p className="font-bold text-slate-900 text-sm">[{plan.fg_code}] {plan.product_name}{plan.oem_brand && <span className="ml-1.5 inline-block align-middle text-[10px] font-black px-1.5 py-0.5 rounded bg-purple-600 text-white">OEM: {plan.oem_brand}</span>}</p>
           <div className="grid grid-cols-3 gap-2 mt-2 text-center">
             <div className="bg-white rounded-lg p-2 border border-slate-200">
               <p className="font-black text-slate-900">{fmt(plan.planned_quantity)}</p>
@@ -609,14 +666,15 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased, warehouses = [] }) {
                 <tbody className="divide-y divide-slate-100">
                   {kittingData.items.map((item, idx) => {
                     const reqQty = Number(item.total_required_qty || 0);
-                    const availStock = Number(item.available_stock ?? item.current_stock ?? 0);
+                    const { avail: availStock, variant: chosenVariant } = rowStock(item);
                     const isShortage = availStock < reqQty;
                     const deficit = reqQty - availStock;
-                    const matchingVariants = subChildParts.filter(s => Number(s.parent_rm_id) === Number(item.rm_id));
+                    const matchingVariants = variantsFor(item);
                     const currentVarId = selectedVariants[item.rm_id] ?? '';
+                    const needsChoice = autoKitting && matchingVariants.length > 0 && !currentVarId;
 
                     return (
-                      <tr key={item.rm_id || idx} className={isShortage ? 'bg-red-50/40 hover:bg-red-50/60' : 'hover:bg-slate-50/50'}>
+                      <tr key={item.rm_id || idx} className={needsChoice ? 'bg-amber-50/60' : isShortage ? 'bg-red-50/40 hover:bg-red-50/60' : 'hover:bg-slate-50/50'}>
                         <td className="p-2 font-mono font-bold text-slate-700">{item.rm_code}</td>
                         <td className="p-2 text-slate-800">
                           <p className="font-semibold text-slate-900">{item.material_name}</p>
@@ -626,21 +684,24 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased, warehouses = [] }) {
                         </td>
                         <td className="p-2">
                           {matchingVariants.length > 0 ? (
-                            <select
+                            <div>
+                            <SearchableSelect
                               value={currentVarId}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setSelectedVariants(prev => ({ ...prev, [item.rm_id]: val }));
-                              }}
-                              className="w-full bg-white border border-blue-300 text-blue-900 rounded-lg px-2 py-1 text-[11px] font-bold focus:ring-2 focus:ring-blue-500 shadow-2xs cursor-pointer"
-                            >
-                              <option value="">-- Standard / Universal --</option>
-                              {matchingVariants.map(v => (
-                                <option key={v.id} value={v.id}>
-                                  [{v.brand_name || 'Brand'}] {v.sub_part_name}
-                                </option>
-                              ))}
-                            </select>
+                              onChange={(val) => setSelectedVariants(prev => ({ ...prev, [item.rm_id]: val || '' }))}
+                              clearable={false}
+                              placeholder={`Choose type (${matchingVariants.length})`}
+                              searchPlaceholder="Search type or brand..."
+                              className="min-w-[230px]"
+                              buttonClassName={`py-1.5 px-2.5 text-[11.5px] rounded-lg ${needsChoice ? 'border-2 border-amber-400 bg-amber-50/60' : 'border-slate-300'}`}
+                              options={matchingVariants.map(v => ({
+                                value: String(v.id),
+                                label: v.sub_part_name,
+                                sublabel: v.brand_name || 'Type',
+                                badge: v.available_in_warehouse !== undefined ? `${fmt(v.available_in_warehouse, 0)} in godown` : undefined,
+                              }))}
+                            />
+                            {needsChoice && <p className="text-[10px] font-bold text-amber-700 mt-0.5">Required: pick a type</p>}
+                            </div>
                           ) : (
                             <span className="text-slate-400 font-medium italic text-[11px]">
                               Standard / Universal
@@ -655,6 +716,11 @@ function ReleaseModal({ isOpen, onClose, plan, onReleased, warehouses = [] }) {
                             {fmt(availStock, 3)}
                           </span>
                           <span className="text-[10px] text-slate-500 font-bold ml-1">{item.unit_code}</span>
+                          {chosenVariant && (
+                            <div className="text-[10px] text-slate-500 font-semibold font-sans whitespace-nowrap">
+                              of {chosenVariant.sub_part_name} · all types: {fmt(item.available_stock ?? item.current_stock ?? 0, 0)}
+                            </div>
+                          )}
                           {(item.stock_by_warehouse || []).filter((w) => Number(w.warehouse_id) !== Number(kitWarehouseId) && w.available !== 0).map((w) => (
                             <div key={w.warehouse_id} className="text-[10px] text-slate-500 font-semibold whitespace-nowrap">{w.warehouse_name}: {fmt(w.available, 0)}</div>
                           ))}
@@ -765,7 +831,7 @@ function PlanningDetail({ plan, onClose, onRelease, onApprove, onCancel, onRefre
                 {plan.priority}
               </span>
             </div>
-            <h2 className="font-black text-slate-900 text-base leading-tight">{plan.product_name}</h2>
+            <h2 className="font-black text-slate-900 text-base leading-tight">{plan.product_name}{plan.oem_brand && <span className="ml-1.5 inline-block align-middle text-[10px] font-black px-1.5 py-0.5 rounded bg-purple-600 text-white">OEM: {plan.oem_brand}</span>}</h2>
             <p className="text-[11px] text-slate-400 font-mono">{plan.fg_code}</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors cursor-pointer">

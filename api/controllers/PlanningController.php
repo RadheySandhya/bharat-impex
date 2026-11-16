@@ -81,10 +81,12 @@ class PlanningController {
                    w.warehouse_name,
                    ub.full_name AS created_by_name,
                    ua.full_name AS approved_by_name,
-                   (pp.planned_quantity - pp.released_quantity) AS pending_quantity
+                   (pp.planned_quantity - pp.released_quantity) AS pending_quantity,
+                   ss.sub_sku_code, ss.sub_sku_name, ss.brand_name AS oem_brand
             FROM production_planning pp
             LEFT JOIN finished_goods fg ON fg.id = pp.fg_id
             LEFT JOIN raw_materials rm  ON rm.id = pp.rm_id
+            LEFT JOIN sub_skus ss   ON ss.id = pp.sub_sku_id
             JOIN units u            ON u.id  = pp.unit_id
             JOIN warehouses w       ON w.id  = pp.warehouse_id
             LEFT JOIN users ub      ON ub.id = pp.created_by
@@ -158,10 +160,12 @@ class PlanningController {
         self::ensureItemTypeColumns(self::db());
         $sql = "SELECT pp.*, COALESCE(fg.fg_code, rm.rm_code) AS fg_code, COALESCE(fg.product_name, rm.material_name) AS product_name, u.unit_code, w.warehouse_name,
                        ub.full_name AS created_by_name,
-                       (pp.planned_quantity - pp.released_quantity) AS pending_quantity
+                       (pp.planned_quantity - pp.released_quantity) AS pending_quantity,
+                       ss.sub_sku_code, ss.sub_sku_name, ss.brand_name AS oem_brand
                 FROM production_planning pp
                 LEFT JOIN finished_goods fg ON fg.id = pp.fg_id
                 LEFT JOIN raw_materials rm  ON rm.id = pp.rm_id
+                LEFT JOIN sub_skus ss   ON ss.id = pp.sub_sku_id
                 JOIN units u            ON u.id  = pp.unit_id
                 JOIN warehouses w       ON w.id  = pp.warehouse_id
                 LEFT JOIN users ub      ON ub.id = pp.created_by
@@ -244,17 +248,30 @@ class PlanningController {
         $userId  = self::userId();
         $db      = self::db();
         self::ensureItemTypeColumns($db);
+        SubSkuStockService::ensureSchema();
+
+        // OEM brand being manufactured (Sub-SKU of this finished good); 0 / empty = own brand
+        $subSkuId = $itemType === 'FG' ? (int)($body['sub_sku_id'] ?? 0) : 0;
+        if ($subSkuId > 0) {
+            try {
+                SubSkuStockService::requireForFg($subSkuId, $fgId);
+            } catch (Exception $e) {
+                Response::error($e->getMessage(), null, 400); return;
+            }
+        }
+        $unitId  = InventoryService::resolveUnitId($unitId, 'PCS');
+        $whId    = InventoryService::getValidWarehouseId($whId);
         $planNum = self::nextPlanningNumber();
 
         $stmt = $db->prepare("
             INSERT INTO production_planning
-              (planning_number, item_type, fg_id, rm_id, unit_id, warehouse_id, planned_quantity,
+              (planning_number, item_type, fg_id, sub_sku_id, rm_id, unit_id, warehouse_id, planned_quantity,
                priority, status, planning_date, required_date, remarks, created_by)
             VALUES
-              (:pn, :it, :fg, :rm, :unit, :wh, :qty, :prio, 'PLANNED', :pd, :rd, :rem, :cb)
+              (:pn, :it, :fg, :ssku, :rm, :unit, :wh, :qty, :prio, 'PLANNED', :pd, :rd, :rem, :cb)
         ");
         $stmt->execute([
-            ':pn' => $planNum, ':it' => $itemType, ':fg' => $fgId ?: null, ':rm' => $rmId ?: null, ':unit' => $unitId, ':wh' => $whId,
+            ':pn' => $planNum, ':it' => $itemType, ':fg' => $fgId ?: null, ':ssku' => $subSkuId ?: null, ':rm' => $rmId ?: null, ':unit' => $unitId, ':wh' => $whId,
             ':qty' => $qty,   ':prio' => $priority, ':pd' => $date,
             ':rd' => $reqDate, ':rem' => $remarks, ':cb' => $userId,
         ]);
@@ -409,21 +426,11 @@ class PlanningController {
                     $unitId = (int)($rmData['unit_id'] ?: 1);
                     $rate   = (float)($rmData['standard_rate'] ?: 0.0);
 
-                    $subChildPartId = !empty($item['sub_child_part_id']) ? (int)$item['sub_child_part_id'] : null;
-                    $subPartName    = !empty($item['sub_part_name']) ? trim($item['sub_part_name']) : null;
-                    $subPartBrand   = !empty($item['sub_part_brand']) ? trim($item['sub_part_brand']) : null;
-
-                    if ($subChildPartId && (!$subPartName || !$subPartBrand)) {
-                        try {
-                            $scpStmt = $db->prepare("SELECT sub_part_name, brand_name, sub_part_code FROM sub_child_parts WHERE id = ?");
-                            $scpStmt->execute([$subChildPartId]);
-                            $scpRow = $scpStmt->fetch(PDO::FETCH_ASSOC);
-                            if ($scpRow) {
-                                $subPartName = $scpRow['sub_part_name'];
-                                $subPartBrand = $scpRow['brand_name'];
-                            }
-                        } catch (Exception $e) {}
-                    }
+                    [$subChildPartId, $subPartName, $subPartBrand] = SubChildStockService::consumeForKitting(
+                        $item, $rmId, $rmData['material_name'], $warehouseId, $reqQty, $releaseNum,
+                        // Releases from the planning screen send their own lines: a type must be chosen there
+                        $allowOverride, $userId, !empty($customItems) && is_array($customItems)
+                    );
 
                     $varNote = ($subPartBrand || $subPartName)
                         ? " [Variant: " . trim(($subPartBrand ? "[$subPartBrand] " : "") . $subPartName) . "]"
@@ -446,14 +453,6 @@ class PlanningController {
                         $userId,
                         $allowOverride
                     );
-
-                    // Decrement variant stock if tracked
-                    if ($subChildPartId > 0) {
-                        try {
-                            $db->prepare("UPDATE sub_child_parts SET current_stock = GREATEST(0, current_stock - ?) WHERE id = ?")
-                               ->execute([$reqQty, $subChildPartId]);
-                        } catch (Exception $e) {}
-                    }
 
                     $deductionResults[] = [
                         'rm_id'             => $rmId,
@@ -543,11 +542,15 @@ class PlanningController {
         $sql = "
             SELECT pr.*, 
                    pp.planning_number, pp.priority, pp.planned_quantity,
-                   fg.id as fg_id, pp.item_type, pp.rm_id, COALESCE(fg.fg_code, rm.rm_code) AS fg_code, COALESCE(fg.product_name, rm.material_name) AS product_name,
+                   fg.id as fg_id, pp.item_type, pp.rm_id, COALESCE(fg.fg_code, rm.rm_code) AS fg_code,
+                   CASE WHEN ss.id IS NOT NULL THEN CONCAT(fg.product_name, ' [OEM: ', ss.brand_name, ']')
+                        ELSE COALESCE(fg.product_name, rm.material_name) END AS product_name,
+                   pp.sub_sku_id, ss.sub_sku_code, ss.sub_sku_name, ss.brand_name AS oem_brand,
                    COALESCE(u.unit_code, 'PCS') as unit_code,
                    usr.full_name as released_by_name
             FROM planning_releases pr
             JOIN production_planning pp ON pr.planning_id = pp.id
+            LEFT JOIN sub_skus ss ON ss.id = pp.sub_sku_id
             LEFT JOIN finished_goods fg ON pp.fg_id = fg.id
             LEFT JOIN raw_materials rm ON pp.rm_id = rm.id
             LEFT JOIN units u ON pp.unit_id = u.id
