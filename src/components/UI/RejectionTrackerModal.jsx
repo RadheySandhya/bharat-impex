@@ -45,7 +45,7 @@ const LOC_STYLE = {
 
 function DestSelect({ value, onChange, stages, lot }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className="flex-1 min-w-[200px] h-9 px-2 rounded-lg border text-sm" aria-label="Send to">
+    <select value={value} onChange={(e) => onChange(e.target.value)} className="flex-1 min-w-0 h-9 px-2 rounded-lg border text-sm" aria-label="Send to">
       <option value="">Send to…</option>
       <optgroup label="Send to a stage for work (keep tracking)">
         {stages.map((s) => <option key={`S${s.key}`} value={`STAGE|${s.key}`}>Work at {s.name}</option>)}
@@ -161,9 +161,9 @@ function MoveForm({ lot, stages, onMoved }) {
         <Plus className="w-3.5 h-3.5" /> Split to another place
       </button>
       <div className="flex items-center gap-2">
-        <input value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Remarks (optional)" className="flex-1 h-9 px-2 rounded-lg border text-sm" />
+        <input value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Remarks (optional)" className="flex-1 min-w-0 h-9 px-2 rounded-lg border text-sm" />
         <button type="button" onClick={submit} disabled={busy || used <= 0 || left < 0}
-          className="h-9 px-4 rounded-lg bg-[#007AFF] hover:bg-[#0A6CF0] disabled:opacity-50 text-white text-sm font-semibold flex items-center gap-1.5 cursor-pointer">
+          className="h-9 px-4 shrink-0 whitespace-nowrap rounded-lg bg-[#007AFF] hover:bg-[#0A6CF0] disabled:opacity-50 text-white text-sm font-semibold flex items-center gap-1.5 cursor-pointer">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           {`Send ${used} pcs`}
         </button>
