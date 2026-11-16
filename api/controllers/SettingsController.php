@@ -229,9 +229,14 @@ class SettingsController {
             Response::error("Warehouse code '{$code}' already exists. Please choose a unique code.", null, 400);
         }
 
+        // Active / inactive from the form (is_active or active); keep the current value when not sent
+        $activeIn = $input['is_active'] ?? ($input['active'] ?? null);
         if ($id) {
             $db->prepare("UPDATE warehouses SET warehouse_code = ?, warehouse_name = ?, location = ?, contact_person = ?, phone = ?, updated_at = NOW() WHERE id = ?")
                ->execute([$code, $name, $location, $contact, $phone, $id]);
+            if ($activeIn !== null) {
+                $db->prepare("UPDATE warehouses SET active = ? WHERE id = ?")->execute([((int)$activeIn) ? 1 : 0, $id]);
+            }
         } else {
             $db->prepare("INSERT INTO warehouses (warehouse_code, warehouse_name, location, contact_person, phone, active, created_at) VALUES (?, ?, ?, ?, ?, 1, NOW())")
                ->execute([$code, $name, $location, $contact, $phone]);

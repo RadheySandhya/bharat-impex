@@ -677,7 +677,7 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
       warehouse_name: wh.warehouse_name,
       location: wh.location || '',
       is_default: wh.is_default ? 1 : 0,
-      is_active: wh.is_active ? 1 : 0
+      is_active: Number(wh.active ?? wh.is_active ?? 1) === 1 ? 1 : 0
     });
     setIsWarehouseModalOpen(true);
   };
@@ -768,8 +768,9 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
     },
     { 
       header: 'Status', 
-      key: 'is_active', 
-      render: (act) => <StatusBadge status={act == 1 ? 'ACTIVE' : 'INACTIVE'} size="xs" /> 
+      key: 'active', 
+      // the API sends `active` (older code read `is_active`, which is always empty -> showed INACTIVE)
+      render: (act, row) => <StatusBadge status={Number(act ?? row?.is_active ?? 1) === 1 ? 'ACTIVE' : 'INACTIVE'} size="xs" /> 
     },
     {
       header: 'Actions',
@@ -2295,15 +2296,25 @@ export function Settings({ subTab: propSubTab, setSubTab: propSetSubTab }) {
           </div>
 
           <div className="pt-2 border-t border-slate-200 space-y-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={warehouseForm.is_active === 1}
-                onChange={(e) => setWarehouseForm({ ...warehouseForm, is_active: e.target.checked ? 1 : 0 })}
-                className="w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500"
-              />
-              <span className="font-semibold text-slate-800">Active Storage Facility</span>
-            </label>
+            <div>
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Status</div>
+              <div role="radiogroup" aria-label="Godown status" className="grid grid-cols-2 gap-2">
+                {[{ v: 1, label: 'Active', on: 'border-emerald-500 bg-emerald-50 text-emerald-700', dot: 'border-emerald-500' },
+                  { v: 0, label: 'Inactive', on: 'border-rose-500 bg-rose-50 text-rose-700', dot: 'border-rose-500' }].map((o) => {
+                  const sel = Number(warehouseForm.is_active) === o.v;
+                  return (
+                    <label key={o.v} className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border-2 cursor-pointer transition-colors ${sel ? o.on : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                      <input type="radio" name="wh_status" value={o.v} checked={sel}
+                        onChange={() => setWarehouseForm({ ...warehouseForm, is_active: o.v })} className="sr-only" />
+                      <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${sel ? o.dot : 'border-slate-300'}`}>
+                        {sel && <span className={`w-2 h-2 rounded-full ${o.v ? 'bg-emerald-500' : 'bg-rose-500'}`} />}
+                      </span>
+                      <span className="font-semibold text-sm">{o.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
 
             <label className="flex items-center gap-2 cursor-pointer">
               <input
